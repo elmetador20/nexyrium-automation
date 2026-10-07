@@ -1,0 +1,23 @@
+# Credentials and local authentication artifacts
+.env
+.env.*
+!.env.production.example
+credentials.json
+**/credentials.json
+*.pem
+*.key
+.wwebjs_auth/
+.wwebjs_cache/
+**/.wwebjs_auth/
+**/.wwebjs_cache/
+RemoteAuth*.zip
+**/RemoteAuth*.zip
+**/wwebjs_temp_session_*/
+*.log
+
+# Installed dependencies and generated builds
+node_modules/
+**/node_modules/
+dashboard/.next/
+*.tsbuildinfo
+RENDER_CHANGED_FILES.md

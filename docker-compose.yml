@@ -1,0 +1,45 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: wa-backend
+    restart: always
+    ports:
+      - "3001:10000"
+    env_file:
+      - .env.production
+    environment:
+      PORT: 10000
+      GOOGLE_SHEETS_CREDENTIALS_PATH: /etc/secrets/credentials.json
+    volumes:
+      - type: bind
+        source: ./credentials.json
+        target: /etc/secrets/credentials.json
+        read_only: true
+    networks:
+      - wa-network
+    depends_on: []
+
+  frontend:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+    container_name: wa-frontend
+    restart: always
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.production
+    environment:
+      PORT: 3000
+    networks:
+      - wa-network
+    depends_on:
+      - backend
+
+networks:
+  wa-network:
+    driver: bridge

@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: nexyrium-backend
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile.backend
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: WHATSAPP_CLIENT_ID
+        value: nexyrium
+      - key: WHATSAPP_SESSION_DATA_PATH
+        value: /app/.wwebjs_auth
+      - key: WHATSAPP_BACKUP_INTERVAL_MS
+        value: "300000"
+      - key: WHATSAPP_MONGODB_URI
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_API_TOKEN
+        generateValue: true
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: openai/gpt-3.5-turbo
+      - key: GOOGLE_SHEETS_SPREADSHEET_ID
+        sync: false
+      - key: GOOGLE_SHEETS_CREDENTIALS_PATH
+        value: /etc/secrets/credentials.json
+      - key: CRON_SCHEDULE
+        value: "*/5 * * * *"
+      - key: MAX_RETRIES
+        value: "5"
+      - key: RETRY_DELAY_MS
+        value: "5000"
+      - key: LOG_LEVEL
+        value: info
