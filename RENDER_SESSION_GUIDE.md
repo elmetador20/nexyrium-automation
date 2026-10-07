@@ -57,7 +57,7 @@ Use **New → Web Service**, GitHub repository, **Docker** runtime, **Free** pla
 
 You can also use **New → Blueprint** with the included `render.yaml`. Render prompts for values marked `sync: false` and generates the admin token. Add the Google Secret File manually afterward. Do not deploy a second service with the same client ID and MongoDB URI except as the ordinary old/new overlap of one deployment.
 
-The Docker build skips Puppeteer's download before `npm ci`, installs system Chromium, supplies its actual path through `PUPPETEER_EXECUTABLE_PATH`, and adds runtime user `node` to group `1000` so Render's Docker Secret File mount is readable at `/etc/secrets/credentials.json`. App code uses that executable path only if configured. Locally, an unset path lets Puppeteer use its managed browser. RemoteAuth's optional dependencies are installed; do not use `--omit=optional`.
+The Docker build skips Puppeteer's download before `npm ci`, installs system Chromium, supplies its actual path through `PUPPETEER_EXECUTABLE_PATH`, skips the native-install Prisma hook, runs `npx prisma generate --schema=./prisma/schema.prisma`, verifies the generated `.prisma/client` files in both build/runtime stages, and adds runtime user `node` to group `1000` so Render's Docker Secret File mount is readable at `/etc/secrets/credentials.json`. Native Node installs use the package postinstall hook when `DATABASE_URL` is available. App code uses that executable path only if configured. Locally, an unset path lets Puppeteer use its managed browser. RemoteAuth's optional dependencies are installed; do not use `--omit=optional`.
 
 ## Every backend environment variable
 

@@ -252,7 +252,7 @@ Choose **New → Web Service** in [Render](https://dashboard.render.com/), conne
 | Port / host | `PORT=10000`, `0.0.0.0` |
 | Persistent disk | None; authentication uses external MongoDB |
 
-The Dockerfile installs Node 22 LTS and system Chromium, sets download-skip before `npm ci --omit=dev --include=optional`, generates Prisma, and adds the non-root `node` user to group `1000`. Render Docker Secret Files use group-1000 runtime access; this is required for the `node` process to read `/etc/secrets/credentials.json`. Do not omit optional RemoteAuth dependencies.
+The Dockerfile installs Node 22 LTS and system Chromium, sets download-skip before `npm ci --omit=dev --include=optional`, skips the native-install hook inside Docker, runs `npx prisma generate --schema=./prisma/schema.prisma`, verifies `node_modules/.prisma/client/default.js` in both build and runtime stages, and adds the non-root `node` user to group `1000`. Native Node installs use the package `postinstall` hook to generate Prisma when `DATABASE_URL` is present; Docker's explicit command remains authoritative. Render Docker Secret Files use group-1000 runtime access; this is required for the `node` process to read `/etc/secrets/credentials.json`. Do not omit optional RemoteAuth dependencies.
 
 ### Backend environment variables
 
@@ -542,7 +542,7 @@ Render Free currently has 15-minute idle sleep, ephemeral filesystems, possible 
 
 External pings provide best-effort inbound traffic. They cannot override restarts, OOM, quotas, database outages, or WhatsApp revocation. Recovery uses the last completed backup; a crash before first upload can need another scan. There is no durable inbound queue, so sleep/database outages can cause processing gaps.
 
-Last verified **October 7, 2026**: clean locked backend install, Prisma generation/schema validation, all **48 backend test-runner checks**, frontend production build/TypeScript, token-handling checks, and Compose syntax. Frontend lint has zero errors and one existing QR-image `<img>` warning. Docker execution was blocked by an unavailable local engine; complete the live phone/MongoDB/Render restart test in steps 9–10.
+Last verified **October 7, 2026**: clean locked backend install, Prisma generation, generated-client runtime import, schema validation, all **50 backend test-runner checks**, frontend production build/TypeScript, token-handling checks, and Compose syntax. Frontend lint has zero errors and one existing QR-image `<img>` warning. Docker execution was blocked by an unavailable local engine; complete the live phone/MongoDB/Render restart test in steps 9–10. The reported `/opt/render/project/src` stack path identifies a native Node Render service; a Docker service should run from the image's `/app` path and use `Dockerfile.backend`.
 
 See [RENDER_SESSION_GUIDE.md](./RENDER_SESSION_GUIDE.md) for inspected authentication/lifecycle details. Run `npm run session:export` to refresh ignored `RENDER_CHANGED_FILES.md`, the full source handoff from an explicit source/example allowlist.
 

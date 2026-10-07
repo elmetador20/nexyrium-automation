@@ -19,7 +19,7 @@ const files = [
   'dashboard/src/app/connections/page.tsx', 'test/whatsapp-lifecycle.test.js',
   'test/health.test.js', 'test/render-startup.test.js', 'test/render-cold-start.test.js',
   'test/remote-storage.test.js', 'test/log-security.test.js',
-  'test/api-access.test.js', 'scripts/verify-render-install.js', 'scripts/verify-dashboard-install.js',
+  'test/api-access.test.js', 'scripts/prisma-postinstall.js', 'scripts/verify-render-install.js', 'scripts/verify-dashboard-install.js',
   'scripts/check-dashboard-auth.cjs', 'scripts/export-render-changes.js',
 ];
 const content = ['# Complete Render session changes\n',

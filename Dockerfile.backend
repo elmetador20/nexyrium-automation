@@ -10,17 +10,32 @@ WORKDIR /app
 
 FROM base AS deps
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --include=optional
 COPY prisma ./prisma
+COPY scripts/prisma-postinstall.js ./scripts/prisma-postinstall.js
+# Native installs use the package postinstall hook. Docker runs the explicit
+# generation below after dependencies and schema are present, without requiring
+# DATABASE_URL during image construction.
+ENV PRISMA_GENERATE_SKIP=1
+RUN npm ci --omit=dev --include=optional
 RUN npx prisma generate --schema=./prisma/schema.prisma
+# Fail the image build rather than producing a runtime image that cannot load
+# @prisma/client/default.js.
+RUN test -f /app/node_modules/.prisma/client/default.js \
+    && test -f /app/node_modules/.prisma/client/schema.prisma
 
 FROM base AS runner
 ENV NODE_ENV=production
 ENV PORT=10000
 COPY --from=deps /app/node_modules ./node_modules
+# Keep the generated runtime artifact explicit. The full node_modules copy above
+# remains necessary for the other production dependencies.
+COPY --from=deps /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=deps /app/node_modules/@prisma/client ./node_modules/@prisma/client
 COPY package.json package-lock.json index.js prisma.config.ts ./
 COPY prisma ./prisma
 COPY src ./src
+RUN test -f /app/node_modules/.prisma/client/default.js \
+    && test -f /app/node_modules/.prisma/client/schema.prisma
 RUN mkdir -p /app/.wwebjs_auth && chown -R node:node /app
 # Render mounts Docker Secret Files at /etc/secrets with group-1000 access.
 # Keep the non-root runtime user while allowing it to read credentials.json.

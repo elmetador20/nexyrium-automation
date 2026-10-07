@@ -10,6 +10,8 @@ const build = fs.mkdtempSync(path.join(base, 'render-install-check-'));
 for (const name of ['package.json', 'package-lock.json', 'prisma.config.ts', 'index.js', 'prisma', 'src', 'test']) {
   fs.cpSync(path.join(project, name), path.join(build, name), { recursive: true });
 }
+fs.mkdirSync(path.join(build, 'scripts'), { recursive: true });
+fs.copyFileSync(path.join(project, 'scripts', 'prisma-postinstall.js'), path.join(build, 'scripts', 'prisma-postinstall.js'));
 // A placeholder file permits cold-start tests without reading the real Google key.
 fs.writeFileSync(path.join(build, 'credentials.json'), '{}', { mode: 0o600 });
 const env = {
@@ -29,8 +31,26 @@ function run(args) {
     process.exit(1);
   }
 }
+function runNode(args) {
+  const result = spawnSync(process.execPath, args, { cwd: build, env, stdio: 'inherit' });
+  if (result.error || result.status !== 0) {
+    console.error('Clean backend verification failed; build directory:', build);
+    process.exit(1);
+  }
+}
 run(['ci', '--omit=dev', '--include=optional', '--no-audit', '--no-fund']);
 run(['run', 'db:generate']);
+runNode(['-e', `
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const generated = path.join('node_modules', '.prisma', 'client');
+  if (!fs.existsSync(path.join(generated, 'default.js'))) throw new Error('Generated Prisma default.js is missing');
+  if (!fs.existsSync(path.join(generated, 'schema.prisma'))) throw new Error('Generated Prisma schema.prisma is missing');
+  const { PrismaClient } = require('@prisma/client');
+  if (typeof PrismaClient !== 'function') throw new Error('PrismaClient export is unavailable');
+  require('./src/lib/prisma');
+  console.log('Generated Prisma Client exists and loads through src/lib/prisma.');
+`]);
 run(['exec', 'prisma', '--', 'validate']);
 run(['test']);
 console.log('Clean locked install, Prisma generation/validation, and backend tests passed.');

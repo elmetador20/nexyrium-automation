@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "postinstall": "node scripts/prisma-postinstall.js",
     "dev": "node --watch index.js",
     "test": "node --test",
     "session:export": "node scripts/export-render-changes.js",
