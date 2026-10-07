@@ -46,6 +46,29 @@ test('database URL parsing decodes credentials and does not use query text as da
   assert.equal(parseDatabaseUrl('mysql://bot:p@@ss@db.example.com/leads').password, 'p@@ss');
 });
 
+test('production requires an explicit Google Secret File path and admin token', async (t) => {
+  const envPath = require.resolve('../src/config/env');
+  const previous = {
+    NODE_ENV: process.env.NODE_ENV,
+    GOOGLE_SHEETS_CREDENTIALS_PATH: process.env.GOOGLE_SHEETS_CREDENTIALS_PATH,
+    ADMIN_API_TOKEN: process.env.ADMIN_API_TOKEN,
+  };
+  t.after(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    delete require.cache[envPath];
+  });
+  process.env.NODE_ENV = 'production';
+  delete process.env.GOOGLE_SHEETS_CREDENTIALS_PATH;
+  delete process.env.ADMIN_API_TOKEN;
+  delete require.cache[envPath];
+  assert.throws(() => require(envPath), /Required environment variables are missing/);
+  // The module reports both names in its startup diagnostic; avoid exposing
+  // the entire process environment in the test output.
+});
+
 test('QR/admin routes reject anonymous requests and accept bearer authorization', async (t) => {
   const previous = process.env.ADMIN_API_TOKEN;
   process.env.ADMIN_API_TOKEN = 'a'.repeat(40);

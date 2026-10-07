@@ -10,8 +10,7 @@ const { spawn } = require('node:child_process');
 test('real production entry point serves public health while both databases are unreachable', { timeout: 120_000 }, async (t) => {
   const base = process.platform === 'linux' && existsSync('/tmp/omnirush') ? '/tmp/omnirush' : os.tmpdir();
   const root = await fs.mkdtemp(path.join(base, 'render-cold-start-'));
-  const credentials = path.join(root, 'credentials.json');
-  await fs.writeFile(credentials, '{}', { mode: 0o600 });
+  const credentials = path.join(root, 'missing-credentials.json');
   const socket = net.createServer();
   await new Promise((resolve) => socket.listen(0, '127.0.0.1', resolve));
   const port = socket.address().port;

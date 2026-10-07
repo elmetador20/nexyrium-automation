@@ -18,3 +18,24 @@ test('logger redacts auth fields, private keys, connection strings, and configur
   }
   assert.ok(text.includes('REDACTED'));
 });
+
+test('logger keeps complete nested startup error details while redacting secrets', () => {
+  const logger = require('../src/lib/logger');
+  const outputs = [];
+  const original = console.error;
+  console.error = (line) => outputs.push(line);
+  try {
+    const cause = new Error('Mongo failed for mongodb+srv://user:password@cluster.example/db');
+    const error = new Error('Startup failed for mysql://user:password@db.example/leads', { cause });
+    error.code = 'ENOENT';
+    logger.error('Application startup failed', { error: logger.describeError(error) });
+  } finally { console.error = original; }
+  const text = outputs.join('\n');
+  assert.ok(text.includes('"name":"Error"'));
+  assert.ok(text.includes('"code":"ENOENT"'));
+  assert.ok(text.includes('"cause"'));
+  assert.ok(text.includes('"stack"'));
+  assert.equal(text.includes('password@'), false);
+  assert.equal(text.includes('mongodb+srv://user:password'), false);
+  assert.equal(text.includes('mysql://user:password'), false);
+});

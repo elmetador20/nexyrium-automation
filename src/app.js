@@ -1,3 +1,5 @@
+const { describeError } = require('./lib/logger');
+
 function createApplication({ deps = require('./container'), config = require('./config/env').env,
   log = require('./lib/logger'), timers = require('./services/inactivity-timer'),
   apiFactory = require('./api/server').createApiServer,
@@ -7,6 +9,8 @@ function createApplication({ deps = require('./container'), config = require('./
   let booting;
   let stopping;
   let stopped = false;
+  let workerStarted = false;
+  let whatsappStarted = false;
 
   function bootstrap() {
     booting ??= (async () => {
@@ -14,14 +18,33 @@ function createApplication({ deps = require('./container'), config = require('./
       // HTTP liveness is available while SQL/Mongo/WhatsApp are still connecting.
       server = await apiFactory(config.PORT).start();
       if (stopped) { server.close(); return; }
-      timers.setProcessor(deps.conversationProcessor.processConversation);
+      // Resolve the processor only when an inactivity timer actually fires.
+      // Constructing it here also constructs Google Sheets synchronously, so a
+      // missing Render Secret File used to reject bootstrap after HTTP started.
+      timers.setProcessor((phone) => deps.conversationProcessor.processConversation(phone));
       monitor = monitorFactory({
         prisma: deps.prisma, logger: log,
         onReady: async () => {
           if (stopped) return;
-          deps.retryWorker.start();
+          try {
+            deps.retryWorker.start();
+            workerStarted = true;
+          } catch (error) {
+            log.error('Retry worker initialization failed; database monitor will retry', {
+              error: describeError(error),
+            });
+            throw error;
+          }
           // Do not consume inbound bot events before the lead database is usable.
-          await deps.whatsapp.initialize();
+          try {
+            whatsappStarted = true;
+            await deps.whatsapp.initialize();
+          } catch (error) {
+            log.error('WhatsApp initialization request failed; lifecycle will retry', {
+              error: describeError(error),
+            });
+            throw error;
+          }
         },
       });
       monitor.start();
@@ -35,9 +58,14 @@ function createApplication({ deps = require('./container'), config = require('./
     stopping ??= (async () => {
       log.info('Shutting down');
       monitor?.stop();
-      deps.retryWorker.stop();
+      // Do not resolve a lazy optional dependency merely to stop it. If its
+      // setup failed (for example, a missing Google Secret File), resolving it
+      // here used to throw a second error and hide the original failure.
+      if (workerStarted) deps.retryWorker.stop();
       timers.clearAll();
-      await deps.whatsapp.close().catch(() => log.warn('WhatsApp shutdown incomplete'));
+      if (whatsappStarted) {
+        await deps.whatsapp.close().catch(() => log.warn('WhatsApp shutdown incomplete'));
+      }
       await deps.prisma.$disconnect().catch(() => log.warn('Lead database shutdown incomplete'));
       if (server) await new Promise((resolve) => server.close(resolve));
     })();

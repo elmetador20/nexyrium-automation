@@ -1,3 +1,5 @@
+const { describeError } = require('../lib/logger');
+
 /** Retry initial SQL connectivity while the HTTP service remains available. */
 function createDatabaseMonitor({ prisma, logger, onReady, intervalMs = 30_000 }) {
   let timer = null;
@@ -15,8 +17,11 @@ function createDatabaseMonitor({ prisma, logger, onReady, intervalMs = 30_000 })
       if (!ready) logger.info('Lead database connected');
       ready = true;
       if (!initialized) { await onReady(); initialized = true; }
-    } catch {
-      if (ready || !initialized) logger.warn('Lead database unavailable; will retry');
+    } catch (error) {
+      if (stopped) return;
+      if (ready || !initialized) logger.warn('Lead database unavailable or startup dependency failed; will retry', {
+        error: describeError(error),
+      });
       ready = false;
     } finally { checking = false; }
   }

@@ -33,6 +33,36 @@ function redact(value, key = '') {
 }
 
 /**
+ * Convert an exception into log-safe structured data. Error properties such as
+ * message and stack are non-enumerable, so logging an Error object directly
+ * otherwise loses the useful startup failure details. Every string is passed
+ * through the same connection/token/private-key redaction as normal metadata.
+ */
+function describeError(error, seen = new Set(), depth = 0) {
+  if (depth > 5) return '[ERROR DETAIL DEPTH LIMIT]';
+  if (error === null || error === undefined) return error;
+  if (typeof error !== 'object') return redact(error);
+  if (seen.has(error)) return '[CIRCULAR ERROR DETAIL]';
+  seen.add(error);
+
+  const details = {
+    name: typeof error.name === 'string' ? error.name : undefined,
+    message: typeof error.message === 'string' ? error.message : undefined,
+    stack: typeof error.stack === 'string' ? error.stack : undefined,
+  };
+  if ('cause' in error && error.cause !== undefined) {
+    details.cause = describeError(error.cause, seen, depth + 1);
+  }
+  if (Array.isArray(error.errors)) {
+    details.errors = error.errors.map((nested) => describeError(nested, seen, depth + 1));
+  }
+  for (const key of ['code', 'errno', 'syscall', 'path', 'address', 'port']) {
+    if (error[key] !== undefined) details[key] = error[key];
+  }
+  return redact(details);
+}
+
+/**
  * @param {'error'|'warn'|'info'|'debug'} level
  * @param {string} message
  * @param {Record<string, unknown>} [meta]
@@ -79,6 +109,7 @@ const logger = {
       console.log(formatMessage('debug', message, meta));
     }
   },
+  describeError,
 };
 
 module.exports = logger;

@@ -252,7 +252,7 @@ Choose **New → Web Service** in [Render](https://dashboard.render.com/), conne
 | Port / host | `PORT=10000`, `0.0.0.0` |
 | Persistent disk | None; authentication uses external MongoDB |
 
-The Dockerfile installs Node 22 LTS and system Chromium, sets download-skip before `npm ci --omit=dev --include=optional`, and generates Prisma. Do not omit optional RemoteAuth dependencies.
+The Dockerfile installs Node 22 LTS and system Chromium, sets download-skip before `npm ci --omit=dev --include=optional`, generates Prisma, and adds the non-root `node` user to group `1000`. Render Docker Secret Files use group-1000 runtime access; this is required for the `node` process to read `/etc/secrets/credentials.json`. Do not omit optional RemoteAuth dependencies.
 
 ### Backend environment variables
 
@@ -519,10 +519,11 @@ Compose maps backend to `http://localhost:3001`, dashboard to `http://localhost:
 | Symptom | Checks and fix |
 | --- | --- |
 | Build cannot find backend | Check root/branch, Dockerfile, package files, `src`, and `prisma`. Backend Root Directory should be blank. |
-| Missing variables/startup loop | Compare step 6 values, token length, Secret File JSON/path, and first startup failure. |
+| Missing variables/startup loop | Compare step 6 values, token length, Secret File JSON/path/filename, group-1000 access, and first startup failure. |
 | Health 503 | Check cold start, failed deploy, port/bind address, crash, or suspension. The running handler returns 200 independently of dependencies. |
 | Health 200, no bot startup | Check SQL access/schema and provider allowlist. Bot startup waits for usable SQL, then initializes MongoDB/WhatsApp. |
 | MongoDB unavailable | Check database/URI, encoded password, user permissions, cluster state, and all Render outbound ranges. No LocalAuth fallback is used. |
+| Google Secret File `ENOENT`/`EACCES` | The file must be named exactly `credentials.json`, the variable must be `/etc/secrets/credentials.json`, and the service must be rebuilt after saving it. The Docker image adds runtime user `node` to group 1000. |
 | QR after every restart | Confirm first upload, stable client ID/database, archive metadata, and restore logs. Revoked credentials require new pairing/backup. |
 | QR image 404 | Poll private status for initialization, restoration, or an already connected session. |
 | Dashboard/status 401 | Enter the backend token/use a bearer header. Reload after cancelling the prompt; check the API origin and rebuild after changing it. |

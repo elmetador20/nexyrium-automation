@@ -26,7 +26,14 @@ const defaults = {
 
 function loadEnv() {
   const missing = REQUIRED_VARS.filter((key) => !process.env[key] && !defaults[key]);
-  if (process.env.NODE_ENV === 'production' && !process.env.ADMIN_API_TOKEN) missing.push('ADMIN_API_TOKEN');
+  if (process.env.NODE_ENV === 'production') {
+    // These may have development fallbacks, but production must name the
+    // Render Secret File explicitly so a typo cannot silently become a local
+    // relative path inside the container.
+    for (const key of ['GOOGLE_SHEETS_CREDENTIALS_PATH', 'ADMIN_API_TOKEN']) {
+      if (!process.env[key] && !missing.includes(key)) missing.push(key);
+    }
+  }
 
   if (missing.length > 0) {
     // eslint-disable-next-line no-console
