@@ -8,7 +8,10 @@ const logger = { info() {}, warn() {}, debug() {}, error() {} };
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const config = { clientId: 'test', dataPath: '/tmp/omnirush/unused-profile', backupIntervalMs: 60_000 };
 
-function fixture({ ClientClass = null, log = logger } = {}) {
+function fixture({ ClientClass = null, log = logger, getChromeInfo = () => ({
+  puppeteerVersion: '24.38.0', expectedChromeRevision: '146.0.7680.31',
+  executablePath: '/project/.puppeteer-cache/chrome-linux64/chrome', exists: true,
+}), verifyChrome = () => {} } = {}) {
   const clients = [];
   const calls = { leases: 0, released: 0, handlers: 0, remoteDeleted: 0 };
   let lost;
@@ -30,9 +33,20 @@ function fixture({ ClientClass = null, log = logger } = {}) {
     adapter: {}, getLastSavedAt: () => '2026-10-07T10:00:00.000Z',
   };
   const service = createWhatsAppClient({ config, logger: log, ClientClass: ClientClass || FakeClient, AuthClass: Auth,
-    remoteStore: store, createEventHandler: () => ({ register() { calls.handlers++; } }) });
+    remoteStore: store, getChromeInfo, verifyChrome,
+    createEventHandler: () => ({ register() { calls.handlers++; } }) });
   return { service, clients, calls, store, loseLease: () => lost() };
 }
+
+test('WhatsApp client passes the verified project-local Chrome executable to Puppeteer', async () => {
+  const f = fixture();
+  await f.service.initialize();
+  assert.equal(f.clients[0].options.puppeteer.executablePath, '/project/.puppeteer-cache/chrome-linux64/chrome');
+  assert.deepEqual(f.clients[0].options.puppeteer.args, [
+    '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu',
+  ]);
+  await f.service.close();
+});
 
 test('failed browser initialization logs only safe error details before retrying', async () => {
   const warnings = [];

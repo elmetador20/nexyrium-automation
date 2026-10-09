@@ -16,8 +16,6 @@ services:
         value: ./.wwebjs_auth
       - key: WHATSAPP_BACKUP_INTERVAL_MS
         value: "300000"
-      - key: PUPPETEER_CACHE_DIR
-        value: /opt/render/.cache/puppeteer
       - key: WHATSAPP_MONGODB_URI
         sync: false
       - key: DATABASE_URL

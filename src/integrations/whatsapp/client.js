@@ -1,6 +1,7 @@
 const { Client } = require('whatsapp-web.js');
 const { PersistentRemoteAuth } = require('./remote-auth');
 const { createRemoteStore } = require('./remote-store');
+const { getPuppeteerChromeInfo, verifyPuppeteerChrome } = require('../../lib/puppeteer-browser');
 
 function safeErrorDetails(error) {
   return {
@@ -12,7 +13,8 @@ function safeErrorDetails(error) {
 
 /** One serialized browser lifecycle plus an external lease across redeploys. */
 function createWhatsAppClient({ config, logger, createEventHandler,
-  ClientClass = Client, AuthClass = PersistentRemoteAuth, remoteStore = createRemoteStore({ config, logger }) }) {
+  ClientClass = Client, AuthClass = PersistentRemoteAuth, remoteStore = createRemoteStore({ config, logger }),
+  getChromeInfo = getPuppeteerChromeInfo, verifyChrome = verifyPuppeteerChrome }) {
   let client = null;
   let currentQr = null;
   let state = 'stopped';
@@ -105,6 +107,15 @@ function createWhatsAppClient({ config, logger, createEventHandler,
         if (client) recover(client, 'WhatsApp remote storage/lease interrupted');
       });
       if (!desired) { await remoteStore.release(); return; }
+      const chrome = getChromeInfo();
+      logger.info('Puppeteer Chrome runtime', {
+        puppeteerVersion: chrome.puppeteerVersion,
+        expectedChromeRevision: chrome.expectedChromeRevision,
+        chromeExecutable: chrome.executablePath,
+        chromeExecutableExists: chrome.exists,
+      });
+      logger.info(`Chrome executable exists: ${chrome.exists}`);
+      verifyChrome();
       const authStrategy = new AuthClass({
         clientId: config.clientId, dataPath: config.dataPath,
         store: remoteStore.adapter, backupSyncIntervalMs: config.backupIntervalMs,
@@ -113,7 +124,7 @@ function createWhatsAppClient({ config, logger, createEventHandler,
         authStrategy,
         puppeteer: {
           headless: true,
-          ...(config.executablePath ? { executablePath: config.executablePath } : {}),
+          executablePath: chrome.executablePath,
           args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
           dumpio: false,
         },

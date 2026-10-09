@@ -1,10 +1,8 @@
-/** Verify that the browser downloaded for the locked Puppeteer version exists. */
-const fs = require('node:fs');
-const puppeteer = require('puppeteer');
+const { verifyPuppeteerChrome } = require('../src/lib/puppeteer-browser');
 
-const executable = puppeteer.executablePath();
-if (!fs.existsSync(executable)) {
-  throw new Error(`Puppeteer Chrome executable is missing: ${executable}`);
-}
-
-console.log(`Puppeteer Chrome executable is installed: ${executable}`);
+const info = verifyPuppeteerChrome();
+console.log(`Puppeteer version: ${info.puppeteerVersion}`);
+console.log(`Expected Chrome: ${info.expectedChromeRevision}`);
+console.log(`Chrome installed: ${info.executablePath}`);
+console.log(`Chrome executable exists: ${info.exists}`);
+console.log(`Chrome executable is executable: ${info.executable}`);

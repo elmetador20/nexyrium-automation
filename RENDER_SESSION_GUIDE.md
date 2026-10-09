@@ -54,7 +54,7 @@ Use **New → Web Service**, GitHub repository, **Node** runtime, **Free** plan.
 
 You can also use **New → Blueprint** with the included `render.yaml`. Render prompts for values marked `sync: false` and generates the admin token. Add the Google Secret File manually afterward. Do not deploy a second service with the same client ID and MongoDB URI except as the ordinary old/new overlap of one deployment.
 
-The Node build keeps optional RemoteAuth dependencies, installs the exact Chrome revision selected by Puppeteer 24.38.0, and verifies that the executable exists before deployment. Leave `PUPPETEER_EXECUTABLE_PATH` and `PUPPETEER_SKIP_DOWNLOAD` unset; the build command overrides download skipping only for the explicit browser installation. The service uses the project-relative `./.wwebjs_auth` staging path because `/app` is a Docker-only path.
+The Node build keeps optional RemoteAuth dependencies, installs the exact Chrome revision selected by Puppeteer 24.38.0 into `.puppeteer-cache`, and verifies that the executable exists before deployment. Leave `PUPPETEER_CACHE_DIR`, `PUPPETEER_EXECUTABLE_PATH`, and `PUPPETEER_SKIP_DOWNLOAD` unset; the runtime passes the verified project-local executable explicitly. The service uses the project-relative `./.wwebjs_auth` staging path because `/app` is a Docker-only path.
 
 ## Every backend environment variable
 
@@ -78,9 +78,9 @@ Paste actual values in **Render → service → Environment**, not source code. 
 | `MAX_RETRIES` | `5` |
 | `RETRY_DELAY_MS` | `5000` |
 | `LOG_LEVEL` | `info` |
-| `PUPPETEER_CACHE_DIR` | `/opt/render/.cache/puppeteer` — keeps the build-installed browser with the Node service |
-| `PUPPETEER_EXECUTABLE_PATH` | Leave unset; use Puppeteer's installed Chrome |
-| `PUPPETEER_SKIP_DOWNLOAD` | Leave unset; the Render build explicitly enables the browser download |
+| `PUPPETEER_CACHE_DIR` | Leave unset; the build uses project-local `.puppeteer-cache` |
+| `PUPPETEER_EXECUTABLE_PATH` | Leave unset; the runtime derives the verified project-local executable |
+| `PUPPETEER_SKIP_DOWNLOAD` | Leave unset; the Render build controls it for `npm ci` and browser installation |
 
 Generate an admin token locally (this is an app-control token, not the WhatsApp archive):
 
@@ -348,7 +348,7 @@ After first pairing/upload, expect `connected: true`, `qrRequired: false`, `auth
 | --- | --- |
 | QR on every restart | Confirm the first upload completed before restarting, unchanged client ID/URI/database, correct GridFS filename and nonzero file length, Atlas network access, and `RemoteAuth` in protected status. If restored credentials are actually revoked, pair again and wait for the new confirmed backup. |
 | Render sleeps | Inspect cron-job.org history for successful scheduled requests to the exact backend `/health` at 5/10-minute intervals. Check whether the job was disabled and whether Render suspended the service for quotas. Wake the URL and confirm restore; pings cannot override suspension or forced restarts. |
-| Chromium launch failure / OOM | Check the build log for the Puppeteer browser verification line, leave `PUPPETEER_EXECUTABLE_PATH` and `PUPPETEER_SKIP_DOWNLOAD` unset, and verify the service can write `./.wwebjs_auth`. The configured sandbox/shared-memory flags are present. Inspect Render memory/exit logs; Free's 512 MB may still be insufficient during browser startup or compression. |
+| Chromium launch failure / OOM | Check the build log for `Chrome executable exists: true`, leave the Puppeteer cache/path variables unset, and verify the service can write `./.wwebjs_auth`. The configured sandbox/shared-memory flags are present. Inspect Render memory/exit logs; Free's 512 MB may still be insufficient during browser startup or compression. |
 | Google Secret File `ENOENT`/`EACCES` | Confirm the filename is exactly `credentials.json`, `GOOGLE_SHEETS_CREDENTIALS_PATH=/etc/secrets/credentials.json`, and that the service was rebuilt after saving the file. |
 | MongoDB connection error | Verify Atlas cluster is running, URI includes the intended database, password is URL-encoded, user has `readWrite`, and Render outbound ranges are allowed. The bot retries storage rather than silently starting a blank profile. Do not delete a valid archive to fix credentials/network access. |
 | Bot disconnected | Check protected status and restore/backoff logs. Temporary errors automatically recover. A manual disconnect intentionally pauses retries: send authenticated `POST /api/whatsapp/reconnect`. Actual logout/revocation can require a new QR. |

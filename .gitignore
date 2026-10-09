@@ -19,6 +19,7 @@ RemoteAuth*.zip
 node_modules/
 **/node_modules/
 .cache/
+.puppeteer-cache/
 dashboard/.next/
 *.tsbuildinfo
 RENDER_CHANGED_FILES.md

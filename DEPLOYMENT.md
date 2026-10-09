@@ -275,7 +275,7 @@ Enter individual values under **Environment**, without surrounding quotes:
 | `RETRY_DELAY_MS` | `5000` |
 | `LOG_LEVEL` | `info` |
 
-The service supplies `PUPPETEER_CACHE_DIR=/opt/render/.cache/puppeteer` through the blueprint. Leave `PUPPETEER_EXECUTABLE_PATH` and `PUPPETEER_SKIP_DOWNLOAD` unset so the downloaded Puppeteer browser is used. Configure the dashboard's `NEXT_PUBLIC_API_URL` separately in step 8.
+The build installs Chrome into the project-local `.puppeteer-cache` directory, which is ignored by Git but remains in the deployed build artifact. Leave `PUPPETEER_CACHE_DIR`, `PUPPETEER_EXECUTABLE_PATH`, and `PUPPETEER_SKIP_DOWNLOAD` unset in Render; the runtime passes the verified project-local executable explicitly. Configure the dashboard's `NEXT_PUBLIC_API_URL` separately in step 8.
 
 ### Secret File and database access
 

@@ -151,7 +151,6 @@ Object.defineProperty(container, 'whatsapp', {
         mongoUri: env.WHATSAPP_MONGODB_URI,
         clientId: env.WHATSAPP_CLIENT_ID,
         backupIntervalMs: env.WHATSAPP_BACKUP_INTERVAL_MS,
-        executablePath: env.PUPPETEER_EXECUTABLE_PATH,
       },
       logger,
       createEventHandler: () => this.eventHandler,

@@ -17,8 +17,7 @@ fs.copyFileSync(path.join(project, 'scripts', 'verify-puppeteer-install.js'), pa
 fs.writeFileSync(path.join(build, 'credentials.json'), '{}', { mode: 0o600 });
 const env = {
   ...process.env,
-  PUPPETEER_SKIP_DOWNLOAD: 'false',
-  PUPPETEER_CACHE_DIR: path.join(build, '.cache', 'puppeteer'),
+  PUPPETEER_SKIP_DOWNLOAD: 'true',
   DATABASE_URL: 'mysql://test:test@127.0.0.1:9/leads',
   WHATSAPP_MONGODB_URI: 'mongodb://127.0.0.1:9/whatsapp_auth',
   GOOGLE_SHEETS_CREDENTIALS_PATH: path.join(build, 'credentials.json'),
@@ -41,6 +40,9 @@ function runNode(args) {
   }
 }
 run(['ci', '--omit=dev', '--include=optional', '--no-audit', '--no-fund']);
+env.PUPPETEER_SKIP_DOWNLOAD = 'false';
+env.PUPPETEER_CACHE_DIR = path.join(build, '.puppeteer-cache');
+run(['exec', 'puppeteer', '--', 'browsers', 'install', 'chrome']);
 runNode(['scripts/verify-puppeteer-install.js']);
 run(['run', 'db:generate']);
 runNode(['-e', `

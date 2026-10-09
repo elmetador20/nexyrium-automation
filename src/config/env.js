@@ -75,7 +75,6 @@ function loadEnv() {
     WHATSAPP_CLIENT_ID: clientId,
     WHATSAPP_BACKUP_INTERVAL_MS: backupInterval,
     ADMIN_API_TOKEN: process.env.ADMIN_API_TOKEN,
-    PUPPETEER_EXECUTABLE_PATH: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     CRON_SCHEDULE: process.env.CRON_SCHEDULE || defaults.CRON_SCHEDULE,
     MAX_RETRIES: parseInt(process.env.MAX_RETRIES, 10) || defaults.MAX_RETRIES,
     RETRY_DELAY_MS: parseInt(process.env.RETRY_DELAY_MS, 10) || defaults.RETRY_DELAY_MS,
