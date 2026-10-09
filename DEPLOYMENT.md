@@ -137,6 +137,10 @@ Use this project-root checkout for subsequent local commands; the example below 
 
 ## 3. Prepare the business database
 
+For the production `leads.context` missing-column error, follow the read-only
+preflight and explicit forward migration procedure in
+[`prisma/PRODUCTION_MIGRATIONS.md`](prisma/PRODUCTION_MIGRATIONS.md).
+
 The Prisma schema uses **MySQL/MariaDB**. MongoDB stores authentication only; Render Postgres cannot replace the business database without application changes.
 
 1. Use your existing persistent database, or create one such as `nexyrium` and a database user.
