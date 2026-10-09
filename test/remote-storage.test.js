@@ -44,7 +44,11 @@ function createLeaseDatabase() {
       return { matchedCount: 1 };
     },
     async deleteOne(filter) {
-      if (state.lease?._id === filter._id && state.lease.owner === filter.owner) state.lease = null;
+      if (state.lease?._id === filter._id && state.lease.owner === filter.owner) {
+        state.lease = null;
+        return { deletedCount: 1 };
+      }
+      return { deletedCount: 0 };
     },
   };
   return { state, collection: () => collection };
@@ -161,6 +165,16 @@ test('Mongo lease acquisition replaces an expired lease but not a valid lease', 
   const blocked = createLeaseRemote(validDatabase, 'valid');
   await assert.rejects(blocked.acquire(() => {}), /lease unavailable/);
   await blocked.close();
+});
+
+test('lease release cannot remove a lease that another owner acquired', async () => {
+  const database = createLeaseDatabase();
+  const remote = createLeaseRemote(database, 'owner-safe-release');
+  await remote.acquire(() => {});
+  database.state.lease.owner = 'another-process';
+  await remote.release();
+  assert.equal(database.state.lease.owner, 'another-process');
+  await remote.close();
 });
 
 test('concurrent missing-lease acquisition grants ownership to exactly one process', async () => {

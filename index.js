@@ -7,9 +7,10 @@ function logFailure(message, error) {
   logger.error(message, { error: logger.describeError(error) });
 }
 
-function exit(code, error) {
+function exit(code, error, reason = 'process failure') {
   if (exiting) return;
   exiting = true;
+  logger.info('Process shutdown requested', { reason, code });
   if (error) logFailure(code === 0 ? 'Shutdown requested with an error' : 'Process failure', error);
   // Render can forcibly terminate the process; remote backups are periodic,
   // never dependent on this shutdown hook finishing.
@@ -23,8 +24,8 @@ function exit(code, error) {
     .finally(() => process.exit(code));
 }
 
-process.on('SIGINT', () => exit(0));
-process.on('SIGTERM', () => exit(0));
+process.on('SIGINT', () => exit(0, null, 'SIGINT'));
+process.on('SIGTERM', () => exit(0, null, 'SIGTERM'));
 process.on('unhandledRejection', (reason) => {
   logFailure('Unhandled asynchronous failure; shutting down safely', reason);
   exit(1);

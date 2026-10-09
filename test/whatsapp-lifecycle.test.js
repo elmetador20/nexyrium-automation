@@ -59,6 +59,7 @@ test('failed browser initialization logs only safe error details before retrying
   const f = fixture({ ClientClass: FailingClient, log });
   await f.service.initialize();
   await flush();
+  assert.equal(f.calls.released, 2);
   const failure = warnings.find(([message]) => message === 'WhatsApp initialization failed');
   assert.ok(failure);
   assert.equal(failure[1].name, 'Error');
@@ -163,6 +164,15 @@ test('a manual stop cancels pending automatic reconnection', async (t) => {
   await flush();
   assert.equal(f.clients.length, 1);
   assert.equal(f.service.getStatus().state, 'stopped');
+});
+
+test('terminal close stops retries and does not allow a second initialization', async () => {
+  const f = fixture();
+  await f.service.initialize();
+  await f.service.close();
+  assert.equal(f.service.getStatus().state, 'stopped');
+  assert.equal(await f.service.initialize(), null);
+  assert.equal(f.clients.length, 1);
 });
 
 test('RemoteAuth preserves archives on temporary disconnect and deletes only on logout', async () => {
