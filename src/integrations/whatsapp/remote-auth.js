@@ -1,6 +1,7 @@
 const { RemoteAuth } = require('whatsapp-web.js');
 const fs = require('node:fs');
 const unzipper = require('unzipper');
+const { safeErrorDetails } = require('../../lib/whatsapp-diagnostics');
 
 /** Reviewed extension points of pinned whatsapp-web.js 1.34.7 RemoteAuth. */
 class PersistentRemoteAuth extends RemoteAuth {
@@ -20,13 +21,19 @@ class PersistentRemoteAuth extends RemoteAuth {
   async beforeBrowserInitialized() {
     if (this.stopped) throw new Error('WhatsApp initialization cancelled');
     this.logger.info('Restoring WhatsApp session from remote storage if available');
-    await super.beforeBrowserInitialized();
+    try {
+      await super.beforeBrowserInitialized();
+    } catch (error) {
+      this.logger.warn('WhatsApp session restoration failed', { error: safeErrorDetails(error) });
+      throw error;
+    }
     if (this.stopped) throw new Error('WhatsApp initialization cancelled');
     this.logger.info('WhatsApp session profile prepared');
   }
 
   async onAuthenticationNeeded() {
     this.newAuthentication = true;
+    this.logger.info('WhatsApp authentication is required; awaiting QR scan');
     // A stale archive must be replaced after a valid new QR login.
     return super.onAuthenticationNeeded();
   }
@@ -45,9 +52,9 @@ class PersistentRemoteAuth extends RemoteAuth {
   }
 
   afterAuthReady() {
-    this.readyTask ??= this.prepareBackups().catch(() => {
+    this.readyTask ??= this.prepareBackups().catch((error) => {
       if (!this.stopped) {
-        this.logger.warn('WhatsApp initial remote backup failed; will retry');
+        this.logger.warn('WhatsApp initial remote backup failed; will retry', { error: safeErrorDetails(error) });
         this.scheduleBackups();
       }
     });
@@ -75,8 +82,10 @@ class PersistentRemoteAuth extends RemoteAuth {
   scheduleBackups() {
     if (this.stopped || this.backupSync) return;
     this.backupSync = setInterval(() => {
-      this.storeRemoteSession({ emit: !this.saved }).catch(() => {
-        this.logger.warn('WhatsApp remote backup failed; keeping last saved session');
+      this.storeRemoteSession({ emit: !this.saved }).catch((error) => {
+        this.logger.warn('WhatsApp remote backup failed; keeping last saved session', {
+          error: safeErrorDetails(error),
+        });
       });
     }, this.backupSyncIntervalMs);
     this.backupSync.unref?.();

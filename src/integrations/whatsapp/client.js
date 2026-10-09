@@ -2,14 +2,7 @@ const { Client } = require('whatsapp-web.js');
 const { PersistentRemoteAuth } = require('./remote-auth');
 const { createRemoteStore } = require('./remote-store');
 const { getPuppeteerChromeInfo, verifyPuppeteerChrome } = require('../../lib/puppeteer-browser');
-
-function safeErrorDetails(error) {
-  return {
-    name: typeof error?.name === 'string' ? error.name : 'Error',
-    message: typeof error?.message === 'string' ? error.message : String(error),
-    stack: typeof error?.stack === 'string' ? error.stack : undefined,
-  };
-}
+const { safeErrorDetails, safeEventValue } = require('../../lib/whatsapp-diagnostics');
 
 /** One serialized browser lifecycle plus an external lease across redeploys. */
 function createWhatsAppClient({ config, logger, createEventHandler,
@@ -33,6 +26,14 @@ function createWhatsAppClient({ config, logger, createEventHandler,
     return pending;
   }
 
+  function transition(nextState, reason) {
+    const previous = state;
+    state = nextState;
+    if (previous !== nextState) logger.info('WhatsApp state transition', {
+      from: previous, to: nextState, reason: safeEventValue(reason),
+    });
+  }
+
   function status() {
     return { state, connected: state === 'ready' && !cleaning, qrRequired: !!currentQr,
       remoteSessionSavedAt: remoteStore.getLastSavedAt(), authStrategy: 'RemoteAuth' };
@@ -40,7 +41,7 @@ function createWhatsAppClient({ config, logger, createEventHandler,
 
   function scheduleRetry() {
     if (!desired || retryTimer) return;
-    state = 'reconnecting';
+    transition('reconnecting', 'retry scheduled');
     const delayMs = Math.min(60_000, 5000 * (2 ** Math.min(attempt++, 4)));
     logger.info('Reconnecting WhatsApp', { delayMs });
     retryTimer = setTimeout(() => {
@@ -80,7 +81,7 @@ function createWhatsAppClient({ config, logger, createEventHandler,
 
   function recover(c, message, logMessage = true) {
     if (c !== client || cleaning) return;
-    state = 'disconnected';
+    transition('disconnected', message);
     currentQr = null;
     if (logMessage) logger.warn(message);
     enqueue(async () => {
@@ -93,14 +94,20 @@ function createWhatsAppClient({ config, logger, createEventHandler,
   function watchBrowser(c) {
     if (c !== client || c.browserRecoveryAttached || !c.pupBrowser) return;
     c.browserRecoveryAttached = true;
-    c.pupBrowser.once('disconnected', () => recover(c, 'WhatsApp browser disconnected'));
+    c.pupBrowser.once('disconnected', () => {
+      logger.warn('WhatsApp browser disconnected', { state });
+      recover(c, 'browser disconnected');
+    });
+    c.pupPage?.once?.('close', () => {
+      logger.warn('WhatsApp browser page closed', { state });
+    });
   }
 
   async function startAttempt() {
     if (!desired) return;
     if (client && ['initializing', 'qr_required', 'authenticated', 'ready'].includes(state)) return client;
     await stopClient();
-    state = 'initializing';
+    transition('initializing', 'initialization started');
     logger.info('Initializing WhatsApp');
     try {
       await remoteStore.acquire(() => {
@@ -136,13 +143,15 @@ function createWhatsAppClient({ config, logger, createEventHandler,
         if (c !== client || cleaning) return;
         clearTimeout(watchdog);
         currentQr = qr;
-        state = 'qr_required';
+        transition('qr_required', 'qr event');
+        logger.info('WhatsApp event: qr', { state, qrAvailable: true });
         logger.info('WhatsApp QR required; use the protected QR endpoint');
       });
       c.on('authenticated', () => {
         if (c !== client || cleaning) return;
         currentQr = null;
-        state = 'authenticated';
+        transition('authenticated', 'authenticated event');
+        logger.info('WhatsApp event: authenticated', { state });
         clearTimeout(watchdog);
         watchdog = setTimeout(() => recover(c, 'WhatsApp authenticated but readiness timed out'), 180_000);
         logger.info('WhatsApp authenticated');
@@ -150,7 +159,8 @@ function createWhatsAppClient({ config, logger, createEventHandler,
       c.on('ready', () => {
         if (c !== client || cleaning) return;
         clearTimeout(watchdog);
-        state = 'ready';
+        transition('ready', 'ready event');
+        logger.info('WhatsApp event: ready', { state });
         attempt = 0;
         currentQr = null;
         watchBrowser(c);
@@ -159,18 +169,26 @@ function createWhatsAppClient({ config, logger, createEventHandler,
       c.on('remote_session_saved', () => {
         if (c === client) logger.info('WhatsApp first remote session backup confirmed');
       });
-      c.on('auth_failure', () => recover(c, 'WhatsApp authentication failure; retrying restoration'));
+      c.on('auth_failure', (error) => {
+        logger.warn('WhatsApp event: auth_failure', { state, error: safeErrorDetails(error) });
+        recover(c, 'authentication failure; retrying restoration');
+      });
       c.on('disconnected', (reason) => {
         // Do not log arbitrary library payloads or authentication material.
+        logger.warn('WhatsApp event: disconnected', { state, reason: safeEventValue(reason) });
         if (reason === 'LOGOUT') {
           // Join the upstream cleanup before releasing the remote lease.
           c.authStrategy.logout().catch(() => logger.warn('Invalidated session cleanup failed'));
         }
-        recover(c, reason === 'LOGOUT' ? 'WhatsApp logged out; a new QR may be required' : 'WhatsApp disconnected');
+        recover(c, reason === 'LOGOUT' ? 'logged out; a new QR may be required' : 'disconnected');
       });
-      c.on('error', () => recover(c, 'WhatsApp client error'));
+      c.on('error', (error) => {
+        logger.warn('WhatsApp event: client_error', { state, error: safeErrorDetails(error) });
+        recover(c, 'client error');
+      });
       c.on('change_state', (value) => {
         if (c !== client || cleaning) return;
+        logger.info('WhatsApp event: change_state', { state, whatsappState: safeEventValue(value) });
         if (['TIMEOUT', 'OPENING'].includes(value)) {
           clearTimeout(watchdog);
           watchdog = setTimeout(() => recover(c, 'WhatsApp network recovery timed out'), 120_000);
@@ -223,7 +241,7 @@ function createWhatsAppClient({ config, logger, createEventHandler,
     desired = false;
     clearTimeout(retryTimer);
     retryTimer = null;
-    return enqueue(async () => { await stopClient(); state = 'stopped'; });
+    return enqueue(async () => { await stopClient(); transition('stopped', 'destroy requested'); });
   }
 
   function resetSession() {
