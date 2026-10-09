@@ -76,11 +76,11 @@ function createWhatsAppClient({ config, logger, createEventHandler,
     await remoteStore.release();
   }
 
-  function recover(c, message) {
+  function recover(c, message, logMessage = true) {
     if (c !== client || cleaning) return;
     state = 'disconnected';
     currentQr = null;
-    logger.warn(message);
+    if (logMessage) logger.warn(message);
     enqueue(async () => {
       if (c !== client) return;
       await stopClient();
@@ -174,7 +174,7 @@ function createWhatsAppClient({ config, logger, createEventHandler,
           // Keep the lifecycle retry, but do not discard the Puppeteer,
           // RemoteAuth, or network exception that explains the failure.
           logger.warn('WhatsApp initialization failed', safeErrorDetails(error));
-          recover(c, 'WhatsApp initialization failed');
+          recover(c, 'WhatsApp initialization failed', false);
         })
         .finally(() => { c.initializationSettled = true; });
       return c;
