@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     region: singapore
-    buildCommand: npm ci && PUPPETEER_SKIP_DOWNLOAD=false npx puppeteer browsers install chrome && node scripts/verify-puppeteer-install.js
+    buildCommand: npm run render:build
     startCommand: npm start
     healthCheckPath: /health
     envVars:
@@ -17,7 +17,7 @@ services:
       - key: WHATSAPP_BACKUP_INTERVAL_MS
         value: "300000"
       - key: PUPPETEER_CACHE_DIR
-        value: ./.cache/puppeteer
+        value: /opt/render/.cache/puppeteer
       - key: WHATSAPP_MONGODB_URI
         sync: false
       - key: DATABASE_URL

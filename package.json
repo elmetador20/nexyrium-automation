@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "render:build": "npm ci --include=optional && PUPPETEER_SKIP_DOWNLOAD=false npx puppeteer browsers install chrome && node scripts/verify-puppeteer-install.js",
     "postinstall": "node scripts/prisma-postinstall.js",
     "dev": "node --watch index.js",
     "test": "node --test",

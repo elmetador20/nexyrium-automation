@@ -244,7 +244,7 @@ Choose **New → Web Service** in [Render](https://dashboard.render.com/), conne
 | Root directory | Blank; repository root |
 | Region | Near your databases; the blueprint uses Singapore |
 | Instance plan | Free |
-| Build command | `npm ci && PUPPETEER_SKIP_DOWNLOAD=false npx puppeteer browsers install chrome && node scripts/verify-puppeteer-install.js` |
+| Build command | `npm run render:build` |
 | Start command | `npm start` |
 | Health check path | `/health` |
 | Port / host | Render-injected `process.env.PORT` (local fallback `10000`), `0.0.0.0` |
@@ -275,7 +275,7 @@ Enter individual values under **Environment**, without surrounding quotes:
 | `RETRY_DELAY_MS` | `5000` |
 | `LOG_LEVEL` | `info` |
 
-The service supplies `PUPPETEER_CACHE_DIR=./.cache/puppeteer` through the blueprint. Leave `PUPPETEER_EXECUTABLE_PATH` and `PUPPETEER_SKIP_DOWNLOAD` unset so the downloaded Puppeteer browser is used. Configure the dashboard's `NEXT_PUBLIC_API_URL` separately in step 8.
+The service supplies `PUPPETEER_CACHE_DIR=/opt/render/.cache/puppeteer` through the blueprint. Leave `PUPPETEER_EXECUTABLE_PATH` and `PUPPETEER_SKIP_DOWNLOAD` unset so the downloaded Puppeteer browser is used. Configure the dashboard's `NEXT_PUBLIC_API_URL` separately in step 8.
 
 ### Secret File and database access
 

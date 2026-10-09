@@ -45,7 +45,7 @@ Use **New → Web Service**, GitHub repository, **Node** runtime, **Free** plan.
 | Branch | The branch containing the backend files above, normally `main` |
 | Root directory | Blank (repository root) |
 | Node version | A version supported by `package.json` engines (`22.12+` or `24.x`) |
-| Build command | `npm ci && PUPPETEER_SKIP_DOWNLOAD=false npx puppeteer browsers install chrome && node scripts/verify-puppeteer-install.js` |
+| Build command | `npm run render:build` |
 | Start command | `npm start` |
 | Health check path | `/health` |
 | HTTP port/host | `process.env.PORT || 10000`, `0.0.0.0` |
@@ -78,7 +78,7 @@ Paste actual values in **Render → service → Environment**, not source code. 
 | `MAX_RETRIES` | `5` |
 | `RETRY_DELAY_MS` | `5000` |
 | `LOG_LEVEL` | `info` |
-| `PUPPETEER_CACHE_DIR` | `./.cache/puppeteer` — keeps the build-installed browser with the Node service |
+| `PUPPETEER_CACHE_DIR` | `/opt/render/.cache/puppeteer` — keeps the build-installed browser with the Node service |
 | `PUPPETEER_EXECUTABLE_PATH` | Leave unset; use Puppeteer's installed Chrome |
 | `PUPPETEER_SKIP_DOWNLOAD` | Leave unset; the Render build explicitly enables the browser download |
 
