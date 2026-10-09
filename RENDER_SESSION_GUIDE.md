@@ -66,8 +66,8 @@ Paste actual values in **Render → service → Environment**, not source code. 
 | Variable | Example / purpose |
 | --- | --- |
 | `NODE_ENV` | `production` |
-| `PORT` | `10000` (Render provides this by default; blueprint also sets it) |
-| `DATABASE_URL` | `mysql://lead_user:URL_ENCODED_PASSWORD@public-db.example.com:3306/nexyrium` |
+| `PORT` | Do not set manually; Render injects the HTTP port |
+| `DATABASE_URL` | `mysql://lead_user:URL_ENCODED_PASSWORD@public-db.example.com:3306/nexyrium?ssl=true` |
 | `WHATSAPP_MONGODB_URI` | `mongodb+srv://wa_user:URL_ENCODED_PASSWORD@cluster.example.mongodb.net/whatsapp_auth?retryWrites=true&w=majority` |
 | `WHATSAPP_CLIENT_ID` | `nexyrium` — keep this identical across restarts/redeploys |
 | `WHATSAPP_SESSION_DATA_PATH` | `/app/.wwebjs_auth` — private temporary staging, not persistent storage |

@@ -249,7 +249,7 @@ Choose **New → Web Service** in [Render](https://dashboard.render.com/), conne
 | Build command | Docker-managed; leave blank if shown |
 | Docker/start command | Leave blank; image CMD runs `npm start` |
 | Health check path | `/health` |
-| Port / host | `PORT=10000`, `0.0.0.0` |
+| Port / host | Render-injected `process.env.PORT` (local fallback `10000`), `0.0.0.0` |
 | Persistent disk | None; authentication uses external MongoDB |
 
 The Dockerfile installs Node 22 LTS and system Chromium, sets download-skip before `npm ci --omit=dev --include=optional`, skips the native-install hook inside Docker, runs `npx prisma generate --schema=./prisma/schema.prisma`, verifies `node_modules/.prisma/client/default.js` in both build and runtime stages, and adds the non-root `node` user to group `1000`. Native Node installs use the package `postinstall` hook to generate Prisma when `DATABASE_URL` is present; Docker's explicit command remains authoritative. Render Docker Secret Files use group-1000 runtime access; this is required for the `node` process to read `/etc/secrets/credentials.json`. Do not omit optional RemoteAuth dependencies.
@@ -261,7 +261,7 @@ Enter individual values under **Environment**, without surrounding quotes:
 | Variable | Value |
 | --- | --- |
 | `NODE_ENV` | `production` |
-| `PORT` | `10000` |
+| `PORT` | Do not set manually; Render supplies the HTTP port |
 | `DATABASE_URL` | External MySQL/MariaDB URI from step 3 |
 | `WHATSAPP_MONGODB_URI` | MongoDB URI from step 4 |
 | `WHATSAPP_CLIENT_ID` | `nexyrium` |

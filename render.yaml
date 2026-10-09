@@ -10,8 +10,6 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: "10000"
       - key: WHATSAPP_CLIENT_ID
         value: nexyrium
       - key: WHATSAPP_SESSION_DATA_PATH
