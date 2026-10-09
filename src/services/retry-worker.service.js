@@ -19,7 +19,8 @@ const { normalizePhone } = require('../lib/phone');
  * @param {import('../lib/logger')} deps.logger
  * @param {{ retrySchedule: string }} deps.config
  */
-function createRetryWorker({ leadRepo, messageRepo, leadService, extractor, assignmentService, logger, config }) {
+function createRetryWorker({ leadRepo, messageRepo, leadService, extractor, assignmentService, logger, config,
+  cronApi = cron }) {
   const BATCH_SIZE = 10;
 
   /**
@@ -145,10 +146,16 @@ function createRetryWorker({ leadRepo, messageRepo, leadService, extractor, assi
 
   /** @type {import('node-cron').ScheduledTask | null} */
   let scheduledTask = null;
+  let running = false;
 
   function start() {
     if (scheduledTask) return;
-    scheduledTask = cron.schedule(config.retrySchedule, async () => {
+    scheduledTask = cronApi.schedule(config.retrySchedule, async () => {
+      if (running) {
+        logger.debug('Retry worker tick skipped; previous tick still running');
+        return;
+      }
+      running = true;
       logger.debug('Retry worker tick');
       try {
         await retryAiPending();
@@ -156,6 +163,8 @@ function createRetryWorker({ leadRepo, messageRepo, leadService, extractor, assi
         await retryAssignments();
       } catch (error) {
         logger.error('Retry worker error', { error: error.message });
+      } finally {
+        running = false;
       }
     });
     logger.info('Retry worker started', { schedule: config.retrySchedule });

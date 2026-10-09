@@ -19,6 +19,7 @@ function createWhatsAppClient({ config, logger, createEventHandler,
   let watchdog = null;
   let attempt = 0;
   let cleaning = false;
+  let recoveryQueued = false;
 
   function enqueue(operation) {
     const pending = queue.then(operation);
@@ -80,15 +81,23 @@ function createWhatsAppClient({ config, logger, createEventHandler,
   }
 
   function recover(c, message, logMessage = true) {
-    if (c !== client || cleaning) return;
+    if (c !== client || cleaning || recoveryQueued) return;
+    recoveryQueued = true;
     transition('disconnected', message);
     currentQr = null;
     if (logMessage) logger.warn(message);
     enqueue(async () => {
-      if (c !== client) return;
-      await stopClient();
+      try {
+        if (c !== client) return;
+        await stopClient();
+        scheduleRetry();
+      } finally {
+        recoveryQueued = false;
+      }
+    }).catch(() => {
+      recoveryQueued = false;
       scheduleRetry();
-    }).catch(() => scheduleRetry());
+    });
   }
 
   function watchBrowser(c) {

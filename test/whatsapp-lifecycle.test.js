@@ -111,6 +111,21 @@ test('temporary disconnect reconnects without deleting remote authentication', a
   await f.service.close();
 });
 
+test('duplicate recovery events queue only one cleanup and retry', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture();
+  await f.service.initialize();
+  const initialReleases = f.calls.released;
+  f.clients[0].emit('disconnected', 'NETWORK');
+  f.clients[0].emit('disconnected', 'CONFLICT');
+  await flush();
+  assert.equal(f.calls.released, initialReleases + 1);
+  t.mock.timers.tick(5000);
+  await flush();
+  assert.equal(f.clients.length, 2);
+  await f.service.close();
+});
+
 test('network timeout, storage/lease interruption, and browser crashes trigger recovery', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture();

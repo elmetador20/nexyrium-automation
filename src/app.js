@@ -2,6 +2,7 @@ const { describeError } = require('./lib/logger');
 
 function createApplication({ deps = require('./container'), config = require('./config/env').env,
   log = require('./lib/logger'), timers = require('./services/inactivity-timer'),
+  memoryMonitorFactory = require('./lib/memory-monitor').createMemoryMonitor,
   apiFactory = require('./api/server').createApiServer,
   monitorFactory = require('./services/database-monitor').createDatabaseMonitor } = {}) {
   let server;
@@ -11,6 +12,7 @@ function createApplication({ deps = require('./container'), config = require('./
   let stopped = false;
   let workerStarted = false;
   let whatsappStarted = false;
+  let memoryMonitor;
 
   function bootstrap() {
     booting ??= (async () => {
@@ -18,6 +20,8 @@ function createApplication({ deps = require('./container'), config = require('./
       // HTTP liveness is available while SQL/Mongo/WhatsApp are still connecting.
       server = await apiFactory(config.PORT).start();
       if (stopped) { server.close(); return; }
+      memoryMonitor = memoryMonitorFactory({ logger: log });
+      memoryMonitor.start();
       // Resolve the processor only when an inactivity timer actually fires.
       // Constructing it here also constructs Google Sheets synchronously, so a
       // missing Render Secret File used to reject bootstrap after HTTP started.
@@ -58,6 +62,7 @@ function createApplication({ deps = require('./container'), config = require('./
     stopping ??= (async () => {
       log.info('Shutting down');
       monitor?.stop();
+      memoryMonitor?.stop();
       // Do not resolve a lazy optional dependency merely to stop it. If its
       // setup failed (for example, a missing Google Secret File), resolving it
       // here used to throw a second error and hide the original failure.
