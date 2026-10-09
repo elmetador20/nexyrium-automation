@@ -46,17 +46,38 @@ function createRemoteStore({ config, logger, mongoose = new mongoosePackage.Mong
     logger.info('WhatsApp session lease acquisition started');
     try {
       await connect();
-    } catch (error) {
-      logger.warn('WhatsApp session lease acquisition failed', { error: safeErrorDetails(error) });
-      throw new Error('WhatsApp session lease unavailable');
-    }
-    lostHandler = onLost;
-    const now = new Date();
-    try {
-      const result = await leases().updateOne({
-        _id: session, $or: [{ owner }, { expiresAt: { $lte: now } }],
-      }, { $set: { owner, expiresAt: new Date(now.getTime() + leaseMs) } }, { upsert: true });
-      if (!result.matchedCount && !result.upsertedCount) throw new Error('LEASE_BUSY');
+      lostHandler = onLost;
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + leaseMs);
+      const current = await leases().findOne({ _id: session });
+
+      // Never upsert against a filter that excludes a valid owner's document:
+      // MongoDB would attempt a duplicate _id insert and return E11000.
+      if (current && current.owner !== owner && current.expiresAt > now) {
+        throw new Error('LEASE_BUSY');
+      }
+
+      let acquired = false;
+      if (!current) {
+        try {
+          await leases().insertOne({ _id: session, owner, expiresAt });
+          acquired = true;
+        } catch (error) {
+          if (!isDuplicateKeyError(error)) throw error;
+          // Another process inserted the missing lease between findOne and
+          // insertOne. Re-evaluate it atomically below.
+        }
+      }
+
+      if (!acquired) {
+        const result = await leases().updateOne({
+          _id: session,
+          $or: [{ owner }, { expiresAt: { $lte: new Date() } }],
+        }, { $set: { owner, expiresAt } });
+        acquired = result.matchedCount === 1;
+      }
+
+      if (!acquired) throw new Error('LEASE_BUSY');
     } catch (error) {
       logger.warn('WhatsApp session lease acquisition failed', { error: safeErrorDetails(error) });
       throw new Error('WhatsApp session lease unavailable');
@@ -84,6 +105,10 @@ function createRemoteStore({ config, logger, mongoose = new mongoosePackage.Mong
       } finally { renewing = false; }
     }, 20_000);
     heartbeat.unref?.();
+  }
+
+  function isDuplicateKeyError(error) {
+    return error?.code === 11000 || error?.code === '11000' || error?.code === 11001;
   }
 
   async function assertLease() {
