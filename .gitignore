@@ -18,6 +18,7 @@ RemoteAuth*.zip
 # Installed dependencies and generated builds
 node_modules/
 **/node_modules/
+.cache/
 dashboard/.next/
 *.tsbuildinfo
 RENDER_CHANGED_FILES.md

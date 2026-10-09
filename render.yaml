@@ -1,11 +1,11 @@
 services:
   - type: web
     name: nexyrium-backend
-    runtime: docker
+    runtime: node
     plan: free
     region: singapore
-    dockerfilePath: ./Dockerfile.backend
-    dockerContext: .
+    buildCommand: npm ci && PUPPETEER_SKIP_DOWNLOAD=false npx puppeteer browsers install chrome && node scripts/verify-puppeteer-install.js
+    startCommand: npm start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
@@ -13,9 +13,11 @@ services:
       - key: WHATSAPP_CLIENT_ID
         value: nexyrium
       - key: WHATSAPP_SESSION_DATA_PATH
-        value: /app/.wwebjs_auth
+        value: ./.wwebjs_auth
       - key: WHATSAPP_BACKUP_INTERVAL_MS
         value: "300000"
+      - key: PUPPETEER_CACHE_DIR
+        value: ./.cache/puppeteer
       - key: WHATSAPP_MONGODB_URI
         sync: false
       - key: DATABASE_URL

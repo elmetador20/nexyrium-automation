@@ -38,7 +38,7 @@ Replace `YOUR-ACCOUNT`, `YOUR-BACKEND`, database hosts/passwords, and `yourdomai
 
 You need:
 
-- Git and Node.js **22 LTS, at least 22.12**, or supported Node.js 24, for local checks and migrations. Render installs its backend Node version through Docker.
+- Git and Node.js **22 LTS, at least 22.12**, or supported Node.js 24, for local checks and migrations. Render runs the backend as a normal Node.js service.
 - GitHub and Render accounts.
 - A persistent MySQL/MariaDB service reachable from your computer and Render.
 - A MongoDB Atlas account/cluster or another external MongoDB service.
@@ -155,8 +155,8 @@ Install dependencies and inspect migrations. Enter the connection URI privately:
 Set-Location "D:\nexyrium-render-deploy"
 $dbUri = Read-Host "External MySQL DATABASE_URL" -AsSecureString
 $env:DATABASE_URL = [System.Net.NetworkCredential]::new("", $dbUri).Password
-$env:PUPPETEER_SKIP_DOWNLOAD = "true"
 npm ci --omit=dev --include=optional
+npx puppeteer browsers install chrome
 npm run db:generate
 npx prisma validate
 npx prisma migrate status
@@ -240,19 +240,17 @@ Choose **New → Web Service** in [Render](https://dashboard.render.com/), conne
 | --- | --- |
 | Name | `nexyrium-backend`, or a chosen unique name |
 | Branch | Backend deployment branch, normally `main` |
-| Language/runtime | Docker |
+| Language/runtime | Node |
 | Root directory | Blank; repository root |
-| Dockerfile path | `./Dockerfile.backend` |
-| Docker build context | `.` |
 | Region | Near your databases; the blueprint uses Singapore |
 | Instance plan | Free |
-| Build command | Docker-managed; leave blank if shown |
-| Docker/start command | Leave blank; image CMD runs `npm start` |
+| Build command | `npm ci && PUPPETEER_SKIP_DOWNLOAD=false npx puppeteer browsers install chrome && node scripts/verify-puppeteer-install.js` |
+| Start command | `npm start` |
 | Health check path | `/health` |
 | Port / host | Render-injected `process.env.PORT` (local fallback `10000`), `0.0.0.0` |
 | Persistent disk | None; authentication uses external MongoDB |
 
-The Dockerfile installs Node 22 LTS and system Chromium, sets download-skip before `npm ci --omit=dev --include=optional`, skips the native-install hook inside Docker, runs `npx prisma generate --schema=./prisma/schema.prisma`, verifies `node_modules/.prisma/client/default.js` in both build and runtime stages, and adds the non-root `node` user to group `1000`. Native Node installs use the package `postinstall` hook to generate Prisma when `DATABASE_URL` is present; Docker's explicit command remains authoritative. Render Docker Secret Files use group-1000 runtime access; this is required for the `node` process to read `/etc/secrets/credentials.json`. Do not omit optional RemoteAuth dependencies.
+The Node build retains optional RemoteAuth dependencies, downloads the exact Chrome revision selected by Puppeteer 24.38.0, verifies the browser executable, and uses the package `postinstall` hook/Prisma configuration to generate the client. Do not set `PUPPETEER_SKIP_DOWNLOAD` or a local/system `PUPPETEER_EXECUTABLE_PATH` on this service.
 
 ### Backend environment variables
 
@@ -265,7 +263,7 @@ Enter individual values under **Environment**, without surrounding quotes:
 | `DATABASE_URL` | External MySQL/MariaDB URI from step 3 |
 | `WHATSAPP_MONGODB_URI` | MongoDB URI from step 4 |
 | `WHATSAPP_CLIENT_ID` | `nexyrium` |
-| `WHATSAPP_SESSION_DATA_PATH` | `/app/.wwebjs_auth` |
+| `WHATSAPP_SESSION_DATA_PATH` | `./.wwebjs_auth` |
 | `WHATSAPP_BACKUP_INTERVAL_MS` | `300000` |
 | `ADMIN_API_TOKEN` | Random token from step 5 |
 | `OPENROUTER_API_KEY` | Your key |
@@ -277,7 +275,7 @@ Enter individual values under **Environment**, without surrounding quotes:
 | `RETRY_DELAY_MS` | `5000` |
 | `LOG_LEVEL` | `info` |
 
-The image supplies `PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium` and `PUPPETEER_SKIP_DOWNLOAD=true`. Configure the dashboard's `NEXT_PUBLIC_API_URL` separately in step 8.
+The service supplies `PUPPETEER_CACHE_DIR=./.cache/puppeteer` through the blueprint. Leave `PUPPETEER_EXECUTABLE_PATH` and `PUPPETEER_SKIP_DOWNLOAD` unset so the downloaded Puppeteer browser is used. Configure the dashboard's `NEXT_PUBLIC_API_URL` separately in step 8.
 
 ### Secret File and database access
 

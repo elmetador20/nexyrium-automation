@@ -2,7 +2,7 @@
 
 ## Audit findings and chosen architecture
 
-The installed and locked `whatsapp-web.js` is **1.34.7**, with Puppeteer **24.38.0**. It is now pinned to prevent an unreviewed authentication API change. Existing Prisma and adapter packages are **7.9.0**. They require Node `^20.19`, `^22.12`, or `>=24`; the backend Docker image now uses supported **Node 22 LTS** on Debian Bookworm.
+The installed and locked `whatsapp-web.js` is **1.34.7**, with Puppeteer **24.38.0**. It is pinned to prevent an unreviewed authentication API change. Existing Prisma and adapter packages are **7.9.0**. They require Node `^20.19`, `^22.12`, or `>=24`; use a Render Node version in that supported range.
 
 Original issues:
 
@@ -11,7 +11,7 @@ Original issues:
 3. Disconnection events were logged without a recovery strategy. `client.info` could report a stale connected state.
 4. QR contents were printed with `qrcode-terminal`, exposing authentication material in Render logs.
 5. HTTP startup waited on SQL connectivity; a SQL outage prevented health checks from responding.
-6. Docker installed Chromium but set download-skip variables only after dependency installation. Its health check assumed port 3001.
+6. The normal Node service must install Puppeteer's matching Chrome during the Render build; a missing browser otherwise appears only as a generic WhatsApp retry.
 7. Production env examples were missing required AI/Sheets variables and used `SESSION_DATA_PATH`, which the application does not read.
 8. The MySQL URL parser treated query text as part of the database name and did not decode escaped credentials.
 9. No root `.gitignore`, `.dockerignore`, or Render blueprint protected session files and credentials.
@@ -37,19 +37,16 @@ The inspected versions need small compatibility/reliability wrappers:
 
 ## Exact Render configuration
 
-Use **New → Web Service**, GitHub repository, **Docker** runtime, **Free** plan.
+Use **New → Web Service**, GitHub repository, **Node** runtime, **Free** plan.
 
 | Setting | Value |
 | --- | --- |
 | Repository | Whole project, not only `dashboard` |
 | Branch | The branch containing the backend files above, normally `main` |
 | Root directory | Blank (repository root) |
-| Dockerfile path | `./Dockerfile.backend` |
-| Docker build context | `.` |
-| Node version | Node 22 LTS, installed by `node:22-bookworm-slim` |
-| Build command | Leave blank; Docker builds the image |
-| Equivalent Docker dependency/build steps | `npm ci --omit=dev --include=optional` then `npx prisma generate --schema=./prisma/schema.prisma` |
-| Start command | `npm start` (Docker CMD already sets it; no override needed) |
+| Node version | A version supported by `package.json` engines (`22.12+` or `24.x`) |
+| Build command | `npm ci && PUPPETEER_SKIP_DOWNLOAD=false npx puppeteer browsers install chrome && node scripts/verify-puppeteer-install.js` |
+| Start command | `npm start` |
 | Health check path | `/health` |
 | HTTP port/host | `process.env.PORT || 10000`, `0.0.0.0` |
 | Persistent disk | Not needed for authentication; Free does not support one |
@@ -57,7 +54,7 @@ Use **New → Web Service**, GitHub repository, **Docker** runtime, **Free** pla
 
 You can also use **New → Blueprint** with the included `render.yaml`. Render prompts for values marked `sync: false` and generates the admin token. Add the Google Secret File manually afterward. Do not deploy a second service with the same client ID and MongoDB URI except as the ordinary old/new overlap of one deployment.
 
-The Docker build skips Puppeteer's download before `npm ci`, installs system Chromium, supplies its actual path through `PUPPETEER_EXECUTABLE_PATH`, skips the native-install Prisma hook, runs `npx prisma generate --schema=./prisma/schema.prisma`, verifies the generated `.prisma/client` files in both build/runtime stages, and adds runtime user `node` to group `1000` so Render's Docker Secret File mount is readable at `/etc/secrets/credentials.json`. Native Node installs use the package postinstall hook when `DATABASE_URL` is available. App code uses that executable path only if configured. Locally, an unset path lets Puppeteer use its managed browser. RemoteAuth's optional dependencies are installed; do not use `--omit=optional`.
+The Node build keeps optional RemoteAuth dependencies, installs the exact Chrome revision selected by Puppeteer 24.38.0, and verifies that the executable exists before deployment. Leave `PUPPETEER_EXECUTABLE_PATH` and `PUPPETEER_SKIP_DOWNLOAD` unset; the build command overrides download skipping only for the explicit browser installation. The service uses the project-relative `./.wwebjs_auth` staging path because `/app` is a Docker-only path.
 
 ## Every backend environment variable
 
@@ -70,7 +67,7 @@ Paste actual values in **Render → service → Environment**, not source code. 
 | `DATABASE_URL` | `mysql://lead_user:URL_ENCODED_PASSWORD@public-db.example.com:3306/nexyrium?ssl=true` |
 | `WHATSAPP_MONGODB_URI` | `mongodb+srv://wa_user:URL_ENCODED_PASSWORD@cluster.example.mongodb.net/whatsapp_auth?retryWrites=true&w=majority` |
 | `WHATSAPP_CLIENT_ID` | `nexyrium` — keep this identical across restarts/redeploys |
-| `WHATSAPP_SESSION_DATA_PATH` | `/app/.wwebjs_auth` — private temporary staging, not persistent storage |
+| `WHATSAPP_SESSION_DATA_PATH` | `./.wwebjs_auth` — private temporary staging, not persistent storage |
 | `WHATSAPP_BACKUP_INTERVAL_MS` | `300000` — periodic backups every 5 minutes; minimum `60000` |
 | `ADMIN_API_TOKEN` | A random secret at least 32 characters long (generated by blueprint, or generate below) |
 | `OPENROUTER_API_KEY` | Your existing OpenRouter API key |
@@ -81,8 +78,9 @@ Paste actual values in **Render → service → Environment**, not source code. 
 | `MAX_RETRIES` | `5` |
 | `RETRY_DELAY_MS` | `5000` |
 | `LOG_LEVEL` | `info` |
-| `PUPPETEER_EXECUTABLE_PATH` | `/usr/bin/chromium` — already supplied by this Dockerfile |
-| `PUPPETEER_SKIP_DOWNLOAD` | `true` — already supplied by this Dockerfile |
+| `PUPPETEER_CACHE_DIR` | `./.cache/puppeteer` — keeps the build-installed browser with the Node service |
+| `PUPPETEER_EXECUTABLE_PATH` | Leave unset; use Puppeteer's installed Chrome |
+| `PUPPETEER_SKIP_DOWNLOAD` | Leave unset; the Render build explicitly enables the browser download |
 
 Generate an admin token locally (this is an app-control token, not the WhatsApp archive):
 
@@ -299,13 +297,13 @@ node scripts/verify-render-install.js
 node scripts/verify-dashboard-install.js
 ```
 
-The backend helper runs `npm ci --omit=dev --include=optional`, `npm run db:generate`, Prisma schema validation, and `npm test`. It uses dummy database endpoints for verification. Tests include the real production entry point, public health with unreachable databases, authorization, lease races/expiry, reconnects, and a real ZIP round-trip after deleting local profile files. The frontend helper runs a clean locked install, lint, production build, TypeScript, and concurrency/invalid-token/cancellation checks for the actual API helper. The temporary build directories are printed for inspection and can be removed after verification. Next's build can require internet access for its Google fonts.
+The backend helper runs a clean optional-dependency install with Puppeteer browser download enabled, verifies the browser executable, runs `npm run db:generate`, Prisma schema validation, and `npm test`. It uses dummy database endpoints for verification. Tests include the real production entry point, public health with unreachable databases, authorization, lease races/expiry, reconnects, and a real ZIP round-trip after deleting local profile files. The frontend helper runs a clean locked install, lint, production build, TypeScript, and concurrency/invalid-token/cancellation checks for the actual API helper. The temporary build directories are printed for inspection and can be removed after verification. Next's build can require internet access for its Google fonts.
 
 On a normal clean checkout the equivalent backend commands are:
 
 ```powershell
-$env:PUPPETEER_SKIP_DOWNLOAD = "true"
 npm ci --omit=dev --include=optional
+npx puppeteer browsers install chrome
 npm run db:generate
 npx prisma validate
 npm test
@@ -313,23 +311,19 @@ npm test
 
 Use the isolated helper if shared Windows/WSL `node_modules` permissions prevent `npm ci`, or if Windows-mounted dependency reads cause test/lint timeouts. Do not infer a Linux deployment failure from those local filesystem issues. Generation/validation do not apply database migrations; follow section 2 for that separate step.
 
-### Build/start the actual container
+### Build/start the Node service locally
 
-With Docker Desktop's Linux engine running, prepare a private `.env.production` from the example and your local `credentials.json`, then:
+Use a private `.env` and run the same dependency/browser steps as Render:
 
 ```powershell
-docker info
-docker build --file Dockerfile.backend --tag nexyrium-backend .
-docker run --rm --name nexyrium-backend-check -p 10000:10000 `
-  --env-file .env.production `
-  --env GOOGLE_SHEETS_CREDENTIALS_PATH=/etc/secrets/credentials.json `
-  --env WHATSAPP_SESSION_DATA_PATH=/app/.wwebjs_auth `
-  --env WHATSAPP_CLIENT_ID=nexyrium-container-check `
-  --mount "type=bind,source=$((Resolve-Path .\credentials.json).Path),target=/etc/secrets/credentials.json,readonly" `
-  nexyrium-backend
+npm ci --include=optional
+$env:PUPPETEER_SKIP_DOWNLOAD = "false"
+npx puppeteer browsers install chrome
+node scripts/verify-puppeteer-install.js
+npm start
 ```
 
-The dedicated test client ID uses its own remote archive/lease. In a second terminal, `curl.exe --fail http://localhost:10000/health` should return HTTP 200. Pair this test instance only if you want to test Chromium/WhatsApp locally. Stop it with Ctrl+C afterward. The real deployment retains `WHATSAPP_CLIENT_ID=nexyrium`.
+The local service uses the project-relative `./.wwebjs_auth` staging path. The real deployment retains `WHATSAPP_CLIENT_ID=nexyrium`.
 
 ### Check the deployed service and saved session
 
@@ -354,11 +348,11 @@ After first pairing/upload, expect `connected: true`, `qrRequired: false`, `auth
 | --- | --- |
 | QR on every restart | Confirm the first upload completed before restarting, unchanged client ID/URI/database, correct GridFS filename and nonzero file length, Atlas network access, and `RemoteAuth` in protected status. If restored credentials are actually revoked, pair again and wait for the new confirmed backup. |
 | Render sleeps | Inspect cron-job.org history for successful scheduled requests to the exact backend `/health` at 5/10-minute intervals. Check whether the job was disabled and whether Render suspended the service for quotas. Wake the URL and confirm restore; pings cannot override suspension or forced restarts. |
-| Chromium launch failure / OOM | Check build logs for installed Chromium and runtime `PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium`, and verify the non-root process can write `/app/.wwebjs_auth`. The configured sandbox/shared-memory flags are already present. Inspect Render memory/exit logs; Free's 512 MB may still be insufficient during browser startup or compression. |
-| Google Secret File `ENOENT`/`EACCES` | Confirm the filename is exactly `credentials.json`, `GOOGLE_SHEETS_CREDENTIALS_PATH=/etc/secrets/credentials.json`, and that the service was rebuilt after saving the file. The backend image adds `node` to group 1000 for Render's runtime secret-file permissions. |
+| Chromium launch failure / OOM | Check the build log for the Puppeteer browser verification line, leave `PUPPETEER_EXECUTABLE_PATH` and `PUPPETEER_SKIP_DOWNLOAD` unset, and verify the service can write `./.wwebjs_auth`. The configured sandbox/shared-memory flags are present. Inspect Render memory/exit logs; Free's 512 MB may still be insufficient during browser startup or compression. |
+| Google Secret File `ENOENT`/`EACCES` | Confirm the filename is exactly `credentials.json`, `GOOGLE_SHEETS_CREDENTIALS_PATH=/etc/secrets/credentials.json`, and that the service was rebuilt after saving the file. |
 | MongoDB connection error | Verify Atlas cluster is running, URI includes the intended database, password is URL-encoded, user has `readWrite`, and Render outbound ranges are allowed. The bot retries storage rather than silently starting a blank profile. Do not delete a valid archive to fix credentials/network access. |
 | Bot disconnected | Check protected status and restore/backoff logs. Temporary errors automatically recover. A manual disconnect intentionally pauses retries: send authenticated `POST /api/whatsapp/reconnect`. Actual logout/revocation can require a new QR. |
-| Health returns 503 | Our live health handler returns 200 independently of dependencies. Check Render cold start/loading, failed deployment, missing required env/Secret File, wrong Dockerfile/port, suspension, and process crash. Wait for cold start and retry; do not change health to depend on SQL/WhatsApp. |
+| Health returns 503 | Our live health handler returns 200 independently of dependencies. Check Render cold start/loading, failed deployment, missing required env/Secret File, wrong service/port configuration, suspension, and process crash. Wait for cold start and retry; do not change health to depend on SQL/WhatsApp. |
 | Repeated restart loop | Read the first startup/build failure, not only subsequent restarts. Check required env, token length, Secret File JSON/path, permissions, Chromium memory, and exit signals. Repeated reconnect messages without a process exit are lifecycle retries, not necessarily Render restarts. |
 | Remote restore fails | Confirm an actual saved file exists in the same database/client bucket and lease ownership can recover after about 90 seconds. Check Mongo download/unzip/profile-ready logs. For a confirmed corrupt/invalid archive, use authenticated reset-session once and re-pair; ordinary reconnect preserves the archive. |
 | Monitor doesn't wake the service | Verify the job is enabled, execution times/method/URL, DNS, timeout history, and Render quotas. The first cold request may exceed the fixed 30-second monitor timeout; test after warming and allow the next scheduled retry. `/robots.txt` does not wake sleeping Render Free services. |
@@ -367,11 +361,11 @@ After first pairing/upload, expect `connected: true`, `qrRequired: false`, `auth
 
 ## Current verification and verdict
 
-The clean Linux locked install, Prisma 7.9.0 generation/schema validation, and **48 backend test-runner checks** pass, including the real production startup/health smoke test and installed RemoteAuth archive round-trip. All 48 also pass in the Windows-mounted project checkout. The clean frontend install, production build, and TypeScript check pass; lint has zero errors and one existing QR-image `<img>` warning. Browser-API checks verify the shared token prompt, invalid-token retry, and cancellation. Compose syntax validates using the example env values without reading real secrets.
+The clean Linux locked install, Puppeteer browser verification, Prisma 7.9.0 generation/schema validation, and **51 backend test-runner checks** pass, including the real production startup/health smoke test and installed RemoteAuth archive round-trip. The clean frontend install, production build, and TypeScript check pass; lint has zero errors and one existing QR-image `<img>` warning. Browser-API checks verify the shared token prompt, invalid-token retry, and cancellation.
 
 Profiling showed Windows-mounted dependency imports alone taking about 40 seconds before HTTP startup; the initial 30-second smoke deadline was too short there. The startup test now allows those slow local reads and passes while still asserting public health with both databases unreachable. Direct mounted-Windows frontend lint timed out, whereas the clean Linux checks pass; use the isolated helpers for reproducible checks.
 
-Docker's Windows CLI is present, but its `dockerDesktopLinuxEngine` pipe is unavailable in this environment. Docker image build/start and a live phone → Mongo upload → actual Render fresh-container restore have **not** been completed here. The code is ready for the documented deployment trial once those infrastructure steps are available; persistent-login/continuous-uptime claims remain conditional on the live test and free-tier limits below.
+A live phone → Mongo upload → actual Render fresh-service restore has **not** been completed here. The code is ready for the documented native Node deployment trial; persistent-login/continuous-uptime claims remain conditional on the live test and free-tier limits below.
 
 ## Render Free limits that remote authentication cannot remove
 

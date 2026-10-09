@@ -8,7 +8,7 @@ const logger = { info() {}, warn() {}, debug() {}, error() {} };
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const config = { clientId: 'test', dataPath: '/tmp/omnirush/unused-profile', backupIntervalMs: 60_000 };
 
-function fixture() {
+function fixture({ ClientClass = null, log = logger } = {}) {
   const clients = [];
   const calls = { leases: 0, released: 0, handlers: 0, remoteDeleted: 0 };
   let lost;
@@ -29,10 +29,30 @@ function fixture() {
     async reset() { calls.remoteDeleted++; },
     adapter: {}, getLastSavedAt: () => '2026-10-07T10:00:00.000Z',
   };
-  const service = createWhatsAppClient({ config, logger, ClientClass: FakeClient, AuthClass: Auth,
+  const service = createWhatsAppClient({ config, logger: log, ClientClass: ClientClass || FakeClient, AuthClass: Auth,
     remoteStore: store, createEventHandler: () => ({ register() { calls.handlers++; } }) });
   return { service, clients, calls, store, loseLease: () => lost() };
 }
+
+test('failed browser initialization logs only safe error details before retrying', async () => {
+  const warnings = [];
+  const log = { info() {}, debug() {}, error() {}, warn(...args) { warnings.push(args); } };
+  class FailingClient extends EventEmitter {
+    constructor(options) { super(); this.authStrategy = options.authStrategy; }
+    async initialize() { throw new Error('browser launch failed'); }
+    async destroy() {}
+  }
+  const f = fixture({ ClientClass: FailingClient, log });
+  await f.service.initialize();
+  await flush();
+  const failure = warnings.find(([message]) => message === 'WhatsApp initialization failed');
+  assert.ok(failure);
+  assert.equal(failure[1].name, 'Error');
+  assert.equal(failure[1].message, 'browser launch failed');
+  assert.match(failure[1].stack, /Error: browser launch failed/);
+  assert.deepEqual(Object.keys(failure[1]).sort(), ['message', 'name', 'stack']);
+  await f.service.destroy();
+});
 
 test('concurrent initialize and reconnect requests do not create duplicate clients', async () => {
   const f = fixture();

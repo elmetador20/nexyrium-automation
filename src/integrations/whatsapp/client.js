@@ -2,6 +2,14 @@ const { Client } = require('whatsapp-web.js');
 const { PersistentRemoteAuth } = require('./remote-auth');
 const { createRemoteStore } = require('./remote-store');
 
+function safeErrorDetails(error) {
+  return {
+    name: typeof error?.name === 'string' ? error.name : 'Error',
+    message: typeof error?.message === 'string' ? error.message : String(error),
+    stack: typeof error?.stack === 'string' ? error.stack : undefined,
+  };
+}
+
 /** One serialized browser lifecycle plus an external lease across redeploys. */
 function createWhatsAppClient({ config, logger, createEventHandler,
   ClientClass = Client, AuthClass = PersistentRemoteAuth, remoteStore = createRemoteStore({ config, logger }) }) {
@@ -162,11 +170,16 @@ function createWhatsAppClient({ config, logger, createEventHandler,
       // are event-driven; HTTP and lifecycle queue are not blocked by QR scanning.
       c.initializationSettled = false;
       Promise.resolve().then(() => c.initialize()).then(() => watchBrowser(c))
-        .catch(() => recover(c, 'WhatsApp initialization failed'))
+        .catch((error) => {
+          // Keep the lifecycle retry, but do not discard the Puppeteer,
+          // RemoteAuth, or network exception that explains the failure.
+          logger.warn('WhatsApp initialization failed', safeErrorDetails(error));
+          recover(c, 'WhatsApp initialization failed');
+        })
         .finally(() => { c.initializationSettled = true; });
       return c;
-    } catch {
-      logger.warn('WhatsApp startup/storage unavailable; will retry');
+    } catch (error) {
+      logger.warn('WhatsApp startup/storage unavailable; will retry', safeErrorDetails(error));
       await stopClient();
       scheduleRetry();
     }
