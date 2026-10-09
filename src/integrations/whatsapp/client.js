@@ -260,7 +260,10 @@ function createWhatsAppClient({ config, logger, createEventHandler,
     if (!client) throw new Error('WhatsApp client not initialized');
     return client;
   }
-  return { initialize, reconnect, destroy, close, resetSession, getClient, getQr: () => currentQr, getStatus: status };
+  return {
+    initialize, reconnect, destroy, close, resetSession, getClient, getQr: () => currentQr,
+    getStatus: status, getLeaseDiagnostic: () => remoteStore.getLeaseDiagnostic(),
+  };
 }
 
 module.exports = { createWhatsAppClient };

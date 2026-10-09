@@ -16,9 +16,10 @@ function duplicateKeyError() {
 }
 
 function createLeaseDatabase() {
-  const state = { lease: null };
+  const state = { lease: null, findOptions: [] };
   const collection = {
     async findOne(filter) {
+      state.findOptions.push(arguments[1]);
       const lease = state.lease;
       if (!lease || lease._id !== filter._id) return null;
       if (filter.owner && lease.owner !== filter.owner) return null;
@@ -63,6 +64,22 @@ function createLeaseRemote(database, clientId) {
     logger, mongoose: createLeaseMongoose(database), Store: class {},
   });
 }
+
+test('lease diagnostic reads only expiry metadata and does not mutate the lease', async () => {
+  const database = createLeaseDatabase();
+  const expiresAt = new Date(Date.now() + 90_000);
+  database.state.lease = { _id: 'RemoteAuth-diagnostic', owner: 'private-owner', expiresAt };
+  const remote = createLeaseRemote(database, 'diagnostic');
+  const diagnostic = await remote.getLeaseDiagnostic();
+  assert.equal(diagnostic.leaseExists, true);
+  assert.equal(diagnostic.expiresAt, expiresAt.toISOString());
+  assert.equal(diagnostic.active, true);
+  assert.ok(diagnostic.checkedAt);
+  assert.equal(Object.hasOwn(diagnostic, 'owner'), false);
+  assert.equal(database.state.lease.owner, 'private-owner');
+  assert.deepEqual(database.state.findOptions.at(-1), { projection: { _id: 1, expiresAt: 1 } });
+  await remote.close();
+});
 
 test('actual installed RemoteAuth ZIP restores after every local profile file is deleted', async (t) => {
   const base = process.platform === 'linux' && existsSync('/tmp/omnirush') ? '/tmp/omnirush' : os.tmpdir();

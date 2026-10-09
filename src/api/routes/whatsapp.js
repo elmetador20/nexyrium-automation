@@ -33,6 +33,17 @@ router.get('/status', (_req, res) => {
   }
 });
 
+// TEMPORARY: remove this authenticated read-only diagnostic after lease
+// troubleshooting is complete. It never invokes WhatsApp lifecycle methods.
+router.get('/lease-diagnostic', requireAdmin, async (_req, res, next) => {
+  try {
+    res.set('Cache-Control', 'no-store');
+    return res.json(await container.whatsapp.getLeaseDiagnostic());
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.get('/qr', requireAdmin, async (_req, res) => {
   res.set('Cache-Control', 'no-store');
   try {

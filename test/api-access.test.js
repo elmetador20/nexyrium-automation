@@ -19,6 +19,9 @@ test('actual API keeps health public and protects status, dashboard, and admin a
       getClient: () => client,
       getStatus: () => ({ connected: false, qrRequired: false, authStrategy: 'RemoteAuth' }),
       getQr: () => 'fixture-only',
+      async getLeaseDiagnostic() {
+        return { leaseExists: true, expiresAt: '2026-10-09T00:00:00.000Z', active: false, checkedAt: '2026-10-09T00:00:01.000Z' };
+      },
       async reconnect() {}, async destroy() {},
     },
     retryWorker: { stop() {}, start() {} },
@@ -33,7 +36,7 @@ test('actual API keeps health public and protects status, dashboard, and admin a
   assert.equal((await fetch(`${base}/health`)).status, 200);
   assert.equal((await fetch(`${base}/api/health`)).status, 200);
   for (const [method, route] of [
-    ['GET', '/api/whatsapp/status'], ['GET', '/api/whatsapp/qr'], ['GET', '/api/whatsapp/qr-image'],
+    ['GET', '/api/whatsapp/status'], ['GET', '/api/whatsapp/lease-diagnostic'], ['GET', '/api/whatsapp/qr'], ['GET', '/api/whatsapp/qr-image'],
     ['GET', '/api/settings'], ['GET', '/api/dashboard/stats'], ['GET', '/api/leads'],
     ['GET', '/api/logs'], ['GET', '/api/conversations'], ['POST', '/api/settings/restart-worker'],
     ['POST', '/api/settings/test-ai'], ['POST', '/api/settings/sync-sheets'],
@@ -49,6 +52,12 @@ test('actual API keeps health public and protects status, dashboard, and admin a
   assert.deepEqual(await status.json(), {
     connected: false, qrRequired: false, authStrategy: 'RemoteAuth',
     phoneNumber: null, name: null, platform: null,
+  });
+  const diagnostic = await fetch(`${base}/api/whatsapp/lease-diagnostic`, { headers });
+  assert.equal(diagnostic.status, 200);
+  assert.deepEqual(await diagnostic.json(), {
+    leaseExists: true, expiresAt: '2026-10-09T00:00:00.000Z', active: false,
+    checkedAt: '2026-10-09T00:00:01.000Z',
   });
   assert.equal((await fetch(`${base}/api/settings/restart-worker`, { method: 'POST', headers })).status, 200);
   const ai = await fetch(`${base}/api/settings/test-ai`, { method: 'POST', headers });

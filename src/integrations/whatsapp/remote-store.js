@@ -117,6 +117,26 @@ function createRemoteStore({ config, logger, mongoose = new mongoosePackage.Mong
     }
   }
 
+  // Temporary read-only troubleshooting diagnostic. Deliberately project only
+  // the lease id and expiry; the owner UUID is never fetched or returned.
+  async function getLeaseDiagnostic() {
+    await connect();
+    const checkedAt = new Date();
+    const lease = await leases().findOne(
+      { _id: session },
+      { projection: { _id: 1, expiresAt: 1 } },
+    );
+    const expiresAt = lease?.expiresAt instanceof Date
+      ? lease.expiresAt
+      : lease?.expiresAt ? new Date(lease.expiresAt) : null;
+    return {
+      leaseExists: !!lease,
+      expiresAt: expiresAt && !Number.isNaN(expiresAt.getTime()) ? expiresAt.toISOString() : null,
+      active: expiresAt && !Number.isNaN(expiresAt.getTime()) ? expiresAt > checkedAt : lease ? null : null,
+      checkedAt: checkedAt.toISOString(),
+    };
+  }
+
   const adapter = {
     async sessionExists(options) {
       await assertLease();
@@ -193,7 +213,10 @@ function createRemoteStore({ config, logger, mongoose = new mongoosePackage.Mong
     try { await adapter.delete({ session }); }
     finally { await release(); }
   }
-  return { acquire, release, close, reset, adapter, getLastSavedAt: () => lastSavedAt };
+  return {
+    acquire, release, close, reset, adapter, getLastSavedAt: () => lastSavedAt,
+    getLeaseDiagnostic,
+  };
 }
 
 module.exports = { createRemoteStore };
