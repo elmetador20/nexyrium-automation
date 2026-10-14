@@ -5,10 +5,15 @@ import type { NextConfig } from "next";
 // Docker, and Render, so cwd is the portable absolute project root on both
 // Windows and Linux.
 const dashboardRoot = process.cwd();
+const isVercel = process.env.VERCEL === "1";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
-  outputFileTracingRoot: dashboardRoot,
+  // Vercel's Next.js adapter manages the .next output itself. The standalone
+  // artifact is only needed by the repository's Docker image.
+  ...(isVercel ? {} : {
+    output: "standalone",
+    outputFileTracingRoot: dashboardRoot,
+  }),
   turbopack: {
     root: dashboardRoot,
   },
