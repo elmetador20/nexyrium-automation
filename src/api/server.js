@@ -22,7 +22,24 @@ const { requireAdmin } = require('./admin-auth');
 function createApiServer(port = Number(process.env.PORT) || 10000) {
   const app = express();
 
-  app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] }));
+    const allowedOrigins = [
+    'https://nexyrium-automation.vercel.app',
+  ];
+
+  app.use(cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error('Origin not allowed by CORS'));
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    optionsSuccessStatus: 204,
+    maxAge: 86400,
+  }));
+
   app.use(express.json());
 
   // Keep health checks independent from the database, WhatsApp, and Sheets.
