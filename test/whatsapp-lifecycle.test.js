@@ -8,7 +8,7 @@ const logger = { info() {}, warn() {}, debug() {}, error() {} };
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const config = { clientId: 'test', dataPath: '/tmp/omnirush/unused-profile', backupIntervalMs: 60_000 };
 
-function fixture({ ClientClass = null, log = logger, getChromeInfo = () => ({
+function fixture({ ClientClass = null, AuthClass = null, log = logger, getChromeInfo = () => ({
   puppeteerVersion: '24.38.0', expectedChromeRevision: '146.0.7680.31',
   executablePath: '/project/.puppeteer-cache/chrome-linux64/chrome', exists: true,
 }), verifyChrome = () => {} } = {}) {
@@ -32,7 +32,7 @@ function fixture({ ClientClass = null, log = logger, getChromeInfo = () => ({
     async reset() { calls.remoteDeleted++; },
     adapter: {}, getLastSavedAt: () => '2026-10-07T10:00:00.000Z',
   };
-  const service = createWhatsAppClient({ config, logger: log, ClientClass: ClientClass || FakeClient, AuthClass: Auth,
+  const service = createWhatsAppClient({ config, logger: log, ClientClass: ClientClass || FakeClient, AuthClass: AuthClass || Auth,
     remoteStore: store, getChromeInfo, verifyChrome,
     createEventHandler: () => ({ register() { calls.handlers++; } }) });
   return { service, clients, calls, store, loseLease: () => lost() };
@@ -79,6 +79,25 @@ test('concurrent initialize and reconnect requests do not create duplicate clien
   assert.equal(f.clients.length, 2);
   assert.equal(f.clients[0].destroyed, true);
   assert.equal(f.calls.handlers, 2);
+  await f.service.close();
+});
+
+test('manual reconnect schedules recovery when previous client cleanup fails', async () => {
+  let failures = 1;
+  class FlakyAuth {
+    constructor(options) { this.options = options; }
+    async destroy() {
+      if (failures-- > 0) throw new Error('cleanup still in progress');
+    }
+    async logout() {}
+  }
+
+  const f = fixture({ AuthClass: FlakyAuth });
+  await f.service.initialize();
+  await f.service.reconnect();
+
+  assert.equal(f.service.getStatus().state, 'reconnecting');
+  assert.equal(f.clients.length, 1);
   await f.service.close();
 });
 

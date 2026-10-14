@@ -162,10 +162,16 @@ function createWhatsAppClient({ config, logger, createEventHandler,
   async function startAttempt() {
     if (!desired) return;
     if (client && ['initializing', 'qr_required', 'authenticated', 'ready'].includes(state)) return client;
-    await stopClient();
-    transition('initializing', 'initialization started');
-    logger.info('Initializing WhatsApp');
+    let initialCleanupComplete = false;
     try {
+      // A previous browser can still be restoring a session when a manual
+      // reconnect arrives. Keep this cleanup inside the retry boundary so a
+      // failed stop cannot reject the lifecycle queue without scheduling the
+      // next attempt.
+      await stopClient();
+      initialCleanupComplete = true;
+      transition('initializing', 'initialization started');
+      logger.info('Initializing WhatsApp');
       await remoteStore.acquire(() => {
         if (client) recover(client, 'WhatsApp remote storage/lease interrupted');
       });
@@ -268,13 +274,16 @@ function createWhatsAppClient({ config, logger, createEventHandler,
       return c;
     } catch (error) {
       logger.warn('WhatsApp startup/storage unavailable; will retry', safeErrorDetails(error));
-      try {
-        await stopClient();
-      } catch (cleanupError) {
-        logger.warn('WhatsApp startup cleanup incomplete; retaining lease ownership', {
-          error: safeErrorDetails(cleanupError),
-        });
+      if (initialCleanupComplete) {
+        try {
+          await stopClient();
+        } catch (cleanupError) {
+          logger.warn('WhatsApp startup cleanup incomplete; retaining lease ownership', {
+            error: safeErrorDetails(cleanupError),
+          });
+        }
       }
+      transition('reconnecting', 'startup attempt failed; retry scheduled');
       scheduleRetry();
     }
   }
@@ -297,8 +306,19 @@ function createWhatsAppClient({ config, logger, createEventHandler,
     retryTimer = null;
     if (!reconnecting) {
       reconnecting = enqueue(async () => {
-        await stopClient();
-        await startAttempt();
+        try {
+          await stopClient();
+          await startAttempt();
+        } catch (error) {
+          // A browser restore can outlive the HTTP request that started it.
+          // Do not turn a cleanup race into an unhandled rejection or leave
+          // the client stuck without a future recovery attempt.
+          logger.warn('Manual WhatsApp reconnect could not complete; retry scheduled', {
+            error: safeErrorDetails(error),
+          });
+          transition('reconnecting', 'manual reconnect failed; retry scheduled');
+          scheduleRetry();
+        }
       }).finally(() => { reconnecting = null; });
     }
     return reconnecting;

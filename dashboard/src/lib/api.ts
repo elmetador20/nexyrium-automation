@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:10000";
 const tokenKey = "nexyrium-admin-token";
 let tokenPrompt: Promise<string | null> | null = null;
 

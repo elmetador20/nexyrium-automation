@@ -43,6 +43,9 @@ test('database URL parsing decodes credentials and does not use query text as da
   assert.equal(config.database, 'leads');
   assert.equal(config.port, 3307);
   assert.deepEqual(config.ssl, { rejectUnauthorized: false });
+  assert.deepEqual(parseDatabaseUrl('mysql://bot:password@db.example.com/leads?ssl-mode=REQUIRED').ssl, {
+    rejectUnauthorized: false,
+  });
   assert.equal(parseDatabaseUrl('mysql://bot:p@@ss@db.example.com/leads').password, 'p@@ss');
 });
 

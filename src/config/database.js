@@ -20,7 +20,8 @@ function parseDatabaseUrl(value) {
     connectionLimit: 5, connectTimeout: 10_000, acquireTimeout: 15_000,
   };
   if (!options.host || !options.user || !options.database) throw new Error('DATABASE_URL is incomplete');
-  if (query.get('ssl') === 'true' || query.get('sslaccept')) {
+  const sslMode = query.get('ssl-mode')?.toUpperCase();
+  if (query.get('ssl') === 'true' || query.get('sslaccept') || ['REQUIRED', 'VERIFY_CA', 'VERIFY_IDENTITY'].includes(sslMode)) {
     // Aiven requires encrypted connections, but its public MySQL endpoint can
     // present a certificate chain that is not trusted by Node's default CA
     // bundle. Keep TLS enabled while allowing deployments to provide the Aiven

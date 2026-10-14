@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
-import path from "node:path";
 
-const dashboardRoot = path.resolve(__dirname);
+// Next compiles this TypeScript config as an ES module, where __dirname is not
+// available. The config is run from the dashboard project directory by npm,
+// Docker, and Render, so cwd is the portable absolute project root on both
+// Windows and Linux.
+const dashboardRoot = process.cwd();
 
 const nextConfig: NextConfig = {
   output: "standalone",
