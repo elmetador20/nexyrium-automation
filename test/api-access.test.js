@@ -49,6 +49,7 @@ test('actual API keeps health public and protects status, dashboard, and admin a
   const headers = { Authorization: `Bearer ${process.env.ADMIN_API_TOKEN}` };
   const status = await fetch(`${base}/api/whatsapp/status`, { headers });
   assert.equal(status.status, 200);
+  assert.equal(status.headers.get('cache-control'), 'no-store, max-age=0');
   assert.deepEqual(await status.json(), {
     connected: false, qrRequired: false, authStrategy: 'RemoteAuth',
     phoneNumber: null, name: null, platform: null,

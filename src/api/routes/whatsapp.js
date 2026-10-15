@@ -12,6 +12,7 @@ const { requireAdmin } = require('../admin-auth');
 const router = Router();
 
 router.get('/status', (_req, res) => {
+  res.set('Cache-Control', 'no-store, max-age=0');
   try {
     const client = container.whatsapp.getClient();
     const info = client.info;

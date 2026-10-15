@@ -15,6 +15,7 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const storedToken = typeof window !== "undefined" ? window.sessionStorage.getItem(tokenKey) : null;
   const request = (token: string | null) => fetch(`${API_BASE}${path}`, {
     ...options,
+    cache: "no-store",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),

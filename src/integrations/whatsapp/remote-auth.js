@@ -16,6 +16,7 @@ class PersistentRemoteAuth extends RemoteAuth {
     this.newAuthentication = false;
     this.saved = false;
     this.logoutPromise = null;
+    this.logoutInProgress = false;
   }
 
   async beforeBrowserInitialized() {
@@ -53,7 +54,7 @@ class PersistentRemoteAuth extends RemoteAuth {
 
   afterAuthReady() {
     this.readyTask ??= this.prepareBackups().catch((error) => {
-      if (!this.stopped) {
+      if (!this.stopped && !this.logoutInProgress) {
         this.logger.warn('WhatsApp initial remote backup failed; will retry', { error: safeErrorDetails(error) });
         this.scheduleBackups();
       }
@@ -62,8 +63,9 @@ class PersistentRemoteAuth extends RemoteAuth {
   }
 
   async prepareBackups() {
+    if (this.logoutInProgress) return;
     const exists = await this.store.sessionExists({ session: this.sessionName });
-    if (this.stopped) return;
+    if (this.stopped || this.logoutInProgress) return;
     this.saved = exists && !this.newAuthentication;
     if (!this.saved) {
       // Upstream requires at least one minute for the first profile to stabilize.
@@ -73,14 +75,14 @@ class PersistentRemoteAuth extends RemoteAuth {
       });
       this.initialTimer = null;
       this.finishDelay = null;
-      if (this.stopped) return;
+      if (this.stopped || this.logoutInProgress) return;
       await this.storeRemoteSession({ emit: true });
     }
     this.scheduleBackups();
   }
 
   scheduleBackups() {
-    if (this.stopped || this.backupSync) return;
+    if (this.stopped || this.logoutInProgress || this.backupSync) return;
     this.backupSync = setInterval(() => {
       this.storeRemoteSession({ emit: !this.saved }).catch((error) => {
         this.logger.warn('WhatsApp remote backup failed; keeping last saved session', {
@@ -92,10 +94,10 @@ class PersistentRemoteAuth extends RemoteAuth {
   }
 
   storeRemoteSession(options) {
-    if (this.stopped) return Promise.resolve();
+    if (this.stopped || this.logoutInProgress) return Promise.resolve();
     if (!this.savePromise) {
       this.savePromise = this.isValidPath(this.userDataDir).then((exists) => {
-        if (!exists || this.stopped) throw new Error('WhatsApp profile not ready for backup');
+        if (!exists || this.stopped || this.logoutInProgress) throw new Error('WhatsApp profile not ready for backup');
         return super.storeRemoteSession(options);
       }).then(() => {
         this.saved = true;
@@ -106,8 +108,14 @@ class PersistentRemoteAuth extends RemoteAuth {
 
   async destroy() {
     this.stopped = true;
+    await this.stopBackupTasks();
+  }
+
+  async stopBackupTasks() {
     clearTimeout(this.initialTimer);
     this.finishDelay?.();
+    this.initialTimer = null;
+    this.finishDelay = null;
     clearInterval(this.backupSync);
     this.backupSync = null;
     await this.savePromise?.catch(() => {});
@@ -119,8 +127,18 @@ class PersistentRemoteAuth extends RemoteAuth {
 
   logout() {
     this.logoutPromise ??= (async () => {
-      await this.destroy();
-      await super.disconnect();
+      // whatsapp-web.js calls logout() from its post_logout frame handler and
+      // immediately calls beforeBrowserInitialized() again on the same auth
+      // strategy. Do not leave `stopped` set across that supported re-login
+      // path; destroy() is reserved for the application-owned shutdown path.
+      this.logoutInProgress = true;
+      try {
+        await this.stopBackupTasks();
+        await super.disconnect();
+      } finally {
+        this.logoutInProgress = false;
+        this.stopped = false;
+      }
     })();
     return this.logoutPromise;
   }

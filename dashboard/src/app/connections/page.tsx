@@ -58,7 +58,7 @@ function ConnectionInfoRow({
 }
 
 function WhatsAppConnectionCard() {
-  const { data: status, isLoading } = useWhatsAppStatus();
+  const { data: status, isLoading, error: statusError } = useWhatsAppStatus();
   useWhatsAppQR();
   const reconnect = useReconnectWhatsApp();
   const disconnect = useDisconnectWhatsApp();
@@ -124,6 +124,12 @@ function WhatsAppConnectionCard() {
               {connected ? "Connected" : "Disconnected"}
             </span>
           </div>
+        )}
+
+        {statusError && (
+          <p className="mt-3 max-w-xs text-sm text-error">
+            Backend status unavailable: {statusError.message}
+          </p>
         )}
 
         {!isLoading && !connected && (
@@ -202,7 +208,7 @@ function WhatsAppConnectionCard() {
 
 function QRCodeCard() {
   const { data: status } = useWhatsAppStatus();
-  const { data: qrData, isLoading: qrLoading } = useWhatsAppQR();
+  const { data: qrData, isLoading: qrLoading, error: qrError } = useWhatsAppQR();
 
   const connected = status?.connected ?? false;
   const qrAvailable = qrData?.available ?? false;
@@ -250,6 +256,20 @@ function QRCodeCard() {
             <Loader2 className="mb-4 h-10 w-10 animate-spin text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
               Waiting for QR code...
+            </p>
+          </motion.div>
+        ) : qrError ? (
+          <motion.div
+            key="error"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex flex-1 flex-col items-center justify-center py-12"
+          >
+            <QrCode className="mb-4 h-10 w-10 text-error" />
+            <p className="text-sm font-medium text-error">QR request failed</p>
+            <p className="mt-2 max-w-xs text-center text-xs text-muted-foreground">
+              {qrError.message}. Check the backend URL, admin token, and Render service status.
             </p>
           </motion.div>
         ) : qrAvailable && qrString ? (

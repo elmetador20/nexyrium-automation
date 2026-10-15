@@ -297,10 +297,17 @@ function createWhatsAppClient({ config, logger, createEventHandler,
         // Do not log arbitrary library payloads or authentication material.
         logger.warn('WhatsApp event: disconnected', { state, reason: safeEventValue(reason) });
         if (reason === 'LOGOUT') {
-          // Join the upstream cleanup before releasing the remote lease.
-          c.authStrategy.logout().catch(() => logger.warn('Invalidated session cleanup failed'));
+          // whatsapp-web.js owns the post_logout sequence: it invokes the
+          // auth strategy logout and then reinitializes the same client. If
+          // this handler also logs out/destroys the strategy, the library's
+          // follow-up beforeBrowserInitialized() sees a stopped strategy and
+          // rejects with "WhatsApp initialization cancelled".
+          currentQr = null;
+          transition('disconnected', 'logged out; library will reinitialize client');
+          logger.warn('WhatsApp was logged out by the web session; waiting for library reinitialization');
+          return;
         }
-        recover(c, reason === 'LOGOUT' ? 'logged out; a new QR may be required' : 'disconnected');
+        recover(c, 'disconnected');
       });
       c.on('error', (error) => {
         logger.warn('WhatsApp event: client_error', { state, error: safeErrorDetails(error) });

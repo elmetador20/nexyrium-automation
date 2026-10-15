@@ -249,6 +249,16 @@ test('RemoteAuth preserves archives on temporary disconnect and deletes only on 
   assert.equal(deleted, 1);
 });
 
+test('PersistentRemoteAuth permits the library post-logout reinitialization step', async () => {
+  const auth = new PersistentRemoteAuth({ ...config, store: {
+    async sessionExists() { return false; },
+    async delete() {},
+  }, backupSyncIntervalMs: 60_000 }, logger);
+  await auth.logout();
+  assert.equal(auth.stopped, false);
+  await auth.destroy();
+});
+
 test('first QR login waits for stabilization and retries a failed first remote backup', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
   const auth = new PersistentRemoteAuth({ ...config, store: { async sessionExists() { return false; } }, backupSyncIntervalMs: 60_000 }, logger);
