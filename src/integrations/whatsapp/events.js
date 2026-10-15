@@ -20,11 +20,14 @@ function createEventHandler({ messageService, logger }) {
   function register(client) {
     // Keep first-message creation and greeting ordered when a customer sends a burst.
     const pendingChats = new Map();
-    client.on('message', async (msg) => {
+    let active = true;
+    const onMessage = async (msg) => {
+      if (!active) return;
       if (msg.fromMe || msg.isStatus || !/@(?:c\.us|s\.whatsapp\.net|lid)$/.test(msg.from || '')) return;
 
       const previous = pendingChats.get(msg.from) || Promise.resolve();
       const pending = previous.then(async () => {
+        if (!active) return;
         let phoneNumber = normalizePhone(msg.from);
         if (!phoneNumber && msg.from.endsWith('@lid')) {
           try {
@@ -34,9 +37,10 @@ function createEventHandler({ messageService, logger }) {
             logger.warn('Could not resolve WhatsApp phone number', { from: msg.from, error: error.message });
           }
         }
+        if (!active) return;
         await messageService.handleIncomingMessage(msg, {
           phoneNumber,
-          sendMessage: (chatId, content) => client.sendMessage(chatId, content),
+          sendMessage: (chatId, content) => active ? client.sendMessage(chatId, content) : Promise.resolve(),
         });
       }).catch((error) => {
         logger.error('Failed to handle incoming message', { error: error.message, from: msg.from });
@@ -46,27 +50,43 @@ function createEventHandler({ messageService, logger }) {
       if (pendingChats.get(msg.from) === pending) {
         pendingChats.delete(msg.from);
       }
-    });
+    };
+    client.on('message', onMessage);
 
-    client.on('message_create', (msg) => {
+    const onMessageCreate = (msg) => {
+      if (!active) return;
       if (msg.fromMe) {
         logger.debug('Outgoing message', {
           to: msg.to,
           message: msg.body.substring(0, 200),
         });
       }
-    });
+    };
+    client.on('message_create', onMessageCreate);
 
-    client.on('message_ack', (msg, ack) => {
+    const onMessageAck = (msg, ack) => {
+      if (!active) return;
       // ack: 0=PENDING, 1=SERVER, 2=DEVICE, 3=READ, 4=PLAYED
       if (ack >= 3) {
         logger.debug('Message read', { to: msg.to, ack });
       }
-    });
+    };
+    client.on('message_ack', onMessageAck);
 
-    client.on('loading_screen', (percent) => {
+    const onLoadingScreen = (percent) => {
+      if (!active) return;
       logger.debug('WhatsApp loading', { percent: Number(percent) || 0 });
-    });
+    };
+    client.on('loading_screen', onLoadingScreen);
+
+    return () => {
+      active = false;
+      pendingChats.clear();
+      client.removeListener('message', onMessage);
+      client.removeListener('message_create', onMessageCreate);
+      client.removeListener('message_ack', onMessageAck);
+      client.removeListener('loading_screen', onLoadingScreen);
+    };
   }
 
   return { register };

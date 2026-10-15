@@ -34,6 +34,7 @@ function fixture({ ClientClass = null, AuthClass = null, log = logger, getChrome
   };
   const service = createWhatsAppClient({ config, logger: log, ClientClass: ClientClass || FakeClient, AuthClass: AuthClass || Auth,
     remoteStore: store, getChromeInfo, verifyChrome,
+    random: () => 0,
     createEventHandler: () => ({ register() { calls.handlers++; } }) });
   return { service, clients, calls, store, loseLease: () => lost() };
 }
@@ -44,6 +45,9 @@ test('WhatsApp client passes the verified project-local Chrome executable to Pup
   assert.equal(f.clients[0].options.puppeteer.executablePath, '/project/.puppeteer-cache/chrome-linux64/chrome');
   assert.deepEqual(f.clients[0].options.puppeteer.args, [
     '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu',
+    '--disable-extensions', '--disable-background-networking', '--disable-component-update',
+    '--disable-default-apps', '--disable-sync', '--disable-translate', '--no-zygote',
+    '--renderer-process-limit=2',
   ]);
   await f.service.close();
 });
@@ -82,7 +86,7 @@ test('concurrent initialize and reconnect requests do not create duplicate clien
   await f.service.close();
 });
 
-test('manual reconnect schedules recovery when previous client cleanup fails', async () => {
+test('manual reconnect releases a lease after a recoverable cleanup error', async () => {
   let failures = 1;
   class FlakyAuth {
     constructor(options) { this.options = options; }
@@ -96,9 +100,47 @@ test('manual reconnect schedules recovery when previous client cleanup fails', a
   await f.service.initialize();
   await f.service.reconnect();
 
-  assert.equal(f.service.getStatus().state, 'reconnecting');
-  assert.equal(f.clients.length, 1);
+  assert.equal(f.service.getStatus().state, 'initializing');
+  assert.equal(f.clients.length, 2);
   await f.service.close();
+});
+
+test('TargetCloseError is recovered without creating overlapping clients', async () => {
+  let rejectInitialization;
+  let created = 0;
+  class TargetClosedClient extends EventEmitter {
+    constructor(options) {
+      super();
+      created++;
+      this.authStrategy = options.authStrategy;
+      this.browser = new EventEmitter();
+      this.pupBrowser = this.browser;
+    }
+    initialize() {
+      return new Promise((_, reject) => { rejectInitialization = reject; });
+    }
+    async destroy() { this.destroyed = true; }
+  }
+  const f = fixture({ ClientClass: TargetClosedClient });
+  await f.service.initialize();
+  rejectInitialization(new Error('TargetCloseError: Target closed'));
+  await flush();
+  assert.equal(created, 1);
+  assert.equal(f.service.getDiagnostics().activeInitializationAttempts, 0);
+  await f.service.close();
+});
+
+test('shutdown is idempotent and clears lifecycle retries', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture();
+  await f.service.initialize();
+  f.clients[0].emit('disconnected', 'NETWORK');
+  await flush();
+  await Promise.all([f.service.close(), f.service.close()]);
+  t.mock.timers.tick(60_000);
+  await flush();
+  assert.equal(f.clients.length, 1);
+  assert.equal(f.service.getStatus().state, 'stopped');
 });
 
 test('QR data stays in memory and authentication/ready status clear it', async () => {

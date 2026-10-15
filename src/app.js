@@ -1,4 +1,5 @@
 const { describeError } = require('./lib/logger');
+const { getCgroupMemory } = require('./lib/whatsapp-diagnostics');
 
 function createApplication({ deps = require('./container'), config = require('./config/env').env,
   log = require('./lib/logger'), timers = require('./services/inactivity-timer'),
@@ -20,7 +21,7 @@ function createApplication({ deps = require('./container'), config = require('./
       // HTTP liveness is available while SQL/Mongo/WhatsApp are still connecting.
       server = await apiFactory(config.PORT).start();
       if (stopped) { server.close(); return; }
-      memoryMonitor = memoryMonitorFactory({ logger: log });
+      memoryMonitor = memoryMonitorFactory({ logger: log, memoryDiagnostics: getCgroupMemory });
       memoryMonitor.start();
       // Resolve the processor only when an inactivity timer actually fires.
       // Constructing it here also constructs Google Sheets synchronously, so a

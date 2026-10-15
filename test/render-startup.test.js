@@ -34,7 +34,30 @@ test('HTTP starts before unavailable databases and WhatsApp; SQL recovery starts
   sqlOnline = true;
   await monitor.check();
   assert.deepEqual(events, ['http', 'worker', 'whatsapp']);
-  await app.shutdown();
+  await Promise.all([app.shutdown(), app.shutdown()]);
+});
+
+test('database readiness work is shared while the callback is still running', async () => {
+  let resolveReady;
+  let readyCalls = 0;
+  const monitor = createDatabaseMonitor({
+    prisma: { async $queryRaw() {} },
+    logger,
+    onReady: async () => {
+      readyCalls++;
+      await new Promise((resolve) => { resolveReady = resolve; });
+    },
+  });
+
+  monitor.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  await monitor.check();
+  assert.equal(readyCalls, 1);
+  resolveReady();
+  await new Promise((resolve) => setImmediate(resolve));
+  await monitor.check();
+  assert.equal(readyCalls, 1);
+  monitor.stop();
 });
 
 test('database URL parsing decodes credentials and does not use query text as database name', () => {

@@ -37,6 +37,33 @@ function readProcRssMb(pid, fsApi = fs) {
   }
 }
 
+function readProcPssMb(pid, fsApi = fs) {
+  try {
+    const rollup = fsApi.readFileSync(`/proc/${pid}/smaps_rollup`, 'utf8');
+    const match = rollup.match(/^Pss:\s+(\d+)\s+kB$/m);
+    return match ? Math.round((Number(match[1]) / 1024) * 10) / 10 : null;
+  } catch {
+    return null;
+  }
+}
+
+function readCgroupValue(filePath, fsApi = fs) {
+  try {
+    const value = fsApi.readFileSync(filePath, 'utf8').trim();
+    if (!value || value === 'max') return null;
+    const bytes = Number(value);
+    return Number.isFinite(bytes) ? Math.round((bytes / (1024 * 1024)) * 10) / 10 : null;
+  } catch {
+    return null;
+  }
+}
+
+function getCgroupMemory(fsApi = fs) {
+  const currentMb = readCgroupValue('/sys/fs/cgroup/memory.current', fsApi);
+  const limitMb = readCgroupValue('/sys/fs/cgroup/memory.max', fsApi);
+  return { cgroupMemoryMb: currentMb, cgroupMemoryLimitMb: limitMb };
+}
+
 /**
  * Return the RSS of Chromium's browser process and all of its descendants.
  * Node's process.memoryUsage() excludes these child processes, which are often
@@ -48,14 +75,20 @@ function readProcRssMb(pid, fsApi = fs) {
 function getChromiumMemory(rootPid, fsApi = fs) {
   const pid = Number(rootPid);
   if (!Number.isInteger(pid) || pid <= 0 || process.platform !== 'linux') {
-    return { chromiumPid: null, chromiumProcessCount: 0, chromiumRssMb: null, chromiumTreeRssMb: null };
+    return {
+      chromiumPid: null, chromiumProcessCount: 0, chromiumRssMb: null,
+      chromiumTreeRssMb: null, chromiumPssMb: null, chromiumTreePssMb: null,
+    };
   }
 
   let entries;
   try {
     entries = fsApi.readdirSync('/proc');
   } catch {
-    return { chromiumPid: pid, chromiumProcessCount: 0, chromiumRssMb: null, chromiumTreeRssMb: null };
+    return {
+      chromiumPid: pid, chromiumProcessCount: 0, chromiumRssMb: null,
+      chromiumTreeRssMb: null, chromiumPssMb: null, chromiumTreePssMb: null,
+    };
   }
 
   const parentByPid = new Map();
@@ -71,26 +104,35 @@ function getChromiumMemory(rootPid, fsApi = fs) {
   }
 
   const descendants = [pid];
+  const seen = new Set(descendants);
   for (let index = 0; index < descendants.length; index++) {
     const parent = descendants[index];
     for (const [child, childParent] of parentByPid) {
-      if (childParent === parent && !descendants.includes(child)) descendants.push(child);
+      if (childParent === parent && !seen.has(child)) {
+        seen.add(child);
+        descendants.push(child);
+      }
     }
   }
 
   const rssValues = descendants.map((descendant) => readProcRssMb(descendant, fsApi)).filter((value) => value !== null);
+  const pssValues = descendants.map((descendant) => readProcPssMb(descendant, fsApi)).filter((value) => value !== null);
   return {
     chromiumPid: pid,
     chromiumProcessCount: descendants.length,
     chromiumRssMb: readProcRssMb(pid, fsApi),
     chromiumTreeRssMb: rssValues.length > 0 ? Math.round(rssValues.reduce((sum, value) => sum + value, 0) * 10) / 10 : null,
+    // PSS assigns shared pages proportionally, so this is a better estimate
+    // of the Chromium tree's real memory contribution than summing RSS.
+    chromiumPssMb: readProcPssMb(pid, fsApi),
+    chromiumTreePssMb: pssValues.length > 0 ? Math.round(pssValues.reduce((sum, value) => sum + value, 0) * 10) / 10 : null,
   };
 }
 
 function getBrowserMemory(browser, fsApi = fs) {
   let pid = null;
   try { pid = browser?.process?.()?.pid || null; } catch { /* Browser may be closing. */ }
-  return getChromiumMemory(pid, fsApi);
+  return { ...getChromiumMemory(pid, fsApi), ...getCgroupMemory(fsApi) };
 }
 
-module.exports = { safeErrorDetails, safeEventValue, getChromiumMemory, getBrowserMemory };
+module.exports = { safeErrorDetails, safeEventValue, getChromiumMemory, getBrowserMemory, getCgroupMemory };

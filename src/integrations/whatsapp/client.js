@@ -6,11 +6,14 @@ const { safeErrorDetails, safeEventValue, getBrowserMemory } = require('../../li
 
 const NORMAL_CLEANUP_TIMEOUT_MS = 35_000;
 const SHUTDOWN_CLEANUP_TIMEOUT_MS = 15_000;
+const FORCE_CLEANUP_TIMEOUT_MS = 5_000;
+const MAX_RETRY_DELAY_MS = 60_000;
 
 /** One serialized browser lifecycle plus an external lease across redeploys. */
 function createWhatsAppClient({ config, logger, createEventHandler,
   ClientClass = Client, AuthClass = PersistentRemoteAuth, remoteStore = createRemoteStore({ config, logger }),
-  getChromeInfo = getPuppeteerChromeInfo, verifyChrome = verifyPuppeteerChrome }) {
+  getChromeInfo = getPuppeteerChromeInfo, verifyChrome = verifyPuppeteerChrome,
+  random = Math.random }) {
   let client = null;
   let currentQr = null;
   let state = 'stopped';
@@ -26,6 +29,9 @@ function createWhatsAppClient({ config, logger, createEventHandler,
   let recoveryQueued = false;
   let closed = false;
   let closePromise = null;
+  let initializationAttempts = 0;
+  let activeInitializationAttempts = 0;
+  let lastMemoryPressureLogAt = 0;
 
   function enqueue(operation) {
     const pending = queue.then(operation);
@@ -49,7 +55,8 @@ function createWhatsAppClient({ config, logger, createEventHandler,
   function scheduleRetry() {
     if (!desired || retryTimer) return;
     transition('reconnecting', 'retry scheduled');
-    const delayMs = Math.min(60_000, 5000 * (2 ** Math.min(attempt++, 4)));
+    const baseDelayMs = Math.min(MAX_RETRY_DELAY_MS, 5000 * (2 ** Math.min(attempt++, 4)));
+    const delayMs = Math.min(MAX_RETRY_DELAY_MS, baseDelayMs + Math.floor(random() * 1000));
     logger.info('Reconnecting WhatsApp', { delayMs });
     retryTimer = setTimeout(() => {
       retryTimer = null;
@@ -67,6 +74,7 @@ function createWhatsAppClient({ config, logger, createEventHandler,
     currentQr = null;
     if (old) {
       cleaning = true;
+      old.eventCleanup?.();
       let cleanupError = null;
       const attemptCleanup = async (step, operation) => {
         try {
@@ -95,13 +103,33 @@ function createWhatsAppClient({ config, logger, createEventHandler,
         await attemptCleanup('Chromium browser close retry', () => old.pupBrowser?.close?.());
       }
       if (!old.initializationSettled) {
+        // destroy() can be unable to reach a browser that failed during
+        // launch. Kill only this client's Puppeteer child as a last resort;
+        // never use a broad process-name kill that could affect another
+        // session owner.
+        const browserProcess = old.pupBrowser?.process?.();
+        if (browserProcess && !browserProcess.killed) {
+          await attemptCleanup('Chromium browser process termination', () => {
+            browserProcess.kill('SIGKILL');
+          });
+        }
+        const forceDeadline = Date.now() + FORCE_CLEANUP_TIMEOUT_MS;
+        while (!old.initializationSettled && Date.now() < forceDeadline) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+      if (!old.initializationSettled) {
         cleaning = false;
         throw new Error('WhatsApp previous initialization has not stopped');
       }
       if (cleanupError) {
-        cleaning = false;
-        throw new Error('WhatsApp previous client cleanup was incomplete', { cause: cleanupError });
+        logger.warn('WhatsApp previous client cleanup completed with an error', {
+          error: safeErrorDetails(cleanupError),
+        });
       }
+      old.removeAllListeners?.();
+      old.pupPage = null;
+      old.pupBrowser = null;
     }
     client = null;
     cleaning = false;
@@ -134,7 +162,25 @@ function createWhatsAppClient({ config, logger, createEventHandler,
   function logBrowserMemory(c) {
     if (c !== client || cleaning || !c.pupBrowser) return;
     const memory = getBrowserMemory(c.pupBrowser);
-    if (memory.chromiumPid) logger.info('WhatsApp Chromium memory usage', memory);
+    if (memory.chromiumPid) logger.info('WhatsApp Chromium memory usage', {
+      ...memory,
+      whatsappState: state,
+      activeInitializationAttempts,
+      retryScheduled: Boolean(retryTimer),
+    });
+    if (memory.cgroupMemoryMb && memory.cgroupMemoryLimitMb) {
+      const ratio = memory.cgroupMemoryMb / memory.cgroupMemoryLimitMb;
+      if (ratio >= 0.9 && Date.now() - lastMemoryPressureLogAt >= 300_000) {
+        lastMemoryPressureLogAt = Date.now();
+        logger.warn('WhatsApp process is near its memory limit; retaining one browser and awaiting platform recovery', {
+          cgroupMemoryMb: memory.cgroupMemoryMb,
+          cgroupMemoryLimitMb: memory.cgroupMemoryLimitMb,
+          memoryRatio: Math.round(ratio * 1000) / 1000,
+          chromiumTreePssMb: memory.chromiumTreePssMb,
+          chromiumProcessCount: memory.chromiumProcessCount,
+        });
+      }
+    }
   }
 
   function watchBrowser(c) {
@@ -147,6 +193,7 @@ function createWhatsAppClient({ config, logger, createEventHandler,
       });
       c.pupPage?.once?.('close', () => {
         logger.warn('WhatsApp browser page closed', { state });
+        recover(c, 'browser page closed');
       });
     }
     logBrowserMemory(c);
@@ -159,17 +206,15 @@ function createWhatsAppClient({ config, logger, createEventHandler,
     }
   }
 
-  async function startAttempt() {
+  async function startAttempt({ force = false } = {}) {
     if (!desired) return;
-    if (client && ['initializing', 'qr_required', 'authenticated', 'ready'].includes(state)) return client;
-    let initialCleanupComplete = false;
+    if (!force && client && ['initializing', 'qr_required', 'authenticated', 'ready'].includes(state)) return client;
     try {
       // A previous browser can still be restoring a session when a manual
       // reconnect arrives. Keep this cleanup inside the retry boundary so a
       // failed stop cannot reject the lifecycle queue without scheduling the
       // next attempt.
       await stopClient();
-      initialCleanupComplete = true;
       transition('initializing', 'initialization started');
       logger.info('Initializing WhatsApp');
       await remoteStore.acquire(() => {
@@ -194,16 +239,24 @@ function createWhatsAppClient({ config, logger, createEventHandler,
         puppeteer: {
           headless: true,
           executablePath: chrome.executablePath,
-          args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+          args: [
+            '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu',
+            '--disable-extensions', '--disable-background-networking', '--disable-component-update',
+            '--disable-default-apps', '--disable-sync', '--disable-translate', '--no-zygote',
+            '--renderer-process-limit=2',
+          ],
           dumpio: false,
         },
         takeoverOnConflict: false,
       });
+      // Synchronous listener/setup failures happen before Chromium launch and
+      // must not be mistaken for a hanging browser initialization.
+      c.initializationSettled = true;
       client = c;
       // Start polling immediately; Chromium may be created before WhatsApp
       // emits ready, and its child RSS is part of the Render memory budget.
       watchBrowser(c);
-      createEventHandler().register(c);
+      c.eventCleanup = createEventHandler().register(c);
       c.on('qr', (qr) => {
         if (c !== client || cleaning) return;
         clearTimeout(watchdog);
@@ -214,6 +267,7 @@ function createWhatsAppClient({ config, logger, createEventHandler,
       });
       c.on('authenticated', () => {
         if (c !== client || cleaning) return;
+        if (state === 'authenticated' || state === 'ready') return;
         currentQr = null;
         transition('authenticated', 'authenticated event');
         logger.info('WhatsApp event: authenticated', { state });
@@ -223,6 +277,7 @@ function createWhatsAppClient({ config, logger, createEventHandler,
       });
       c.on('ready', () => {
         if (c !== client || cleaning) return;
+        if (state === 'ready') return;
         clearTimeout(watchdog);
         transition('ready', 'ready event');
         logger.info('WhatsApp event: ready', { state });
@@ -263,25 +318,28 @@ function createWhatsAppClient({ config, logger, createEventHandler,
       // initialize() may wait on WhatsApp indefinitely. Completion and recovery
       // are event-driven; HTTP and lifecycle queue are not blocked by QR scanning.
       c.initializationSettled = false;
-      Promise.resolve().then(() => c.initialize()).then(() => watchBrowser(c))
+      initializationAttempts++;
+      activeInitializationAttempts++;
+      c.initializationPromise = Promise.resolve().then(() => c.initialize()).then(() => watchBrowser(c))
         .catch((error) => {
           // Keep the lifecycle retry, but do not discard the Puppeteer,
           // RemoteAuth, or network exception that explains the failure.
           logger.warn('WhatsApp initialization failed', safeErrorDetails(error));
           recover(c, 'WhatsApp initialization failed', false);
         })
-        .finally(() => { c.initializationSettled = true; });
+        .finally(() => {
+          c.initializationSettled = true;
+          activeInitializationAttempts = Math.max(0, activeInitializationAttempts - 1);
+        });
       return c;
     } catch (error) {
       logger.warn('WhatsApp startup/storage unavailable; will retry', safeErrorDetails(error));
-      if (initialCleanupComplete) {
-        try {
-          await stopClient();
-        } catch (cleanupError) {
-          logger.warn('WhatsApp startup cleanup incomplete; retaining lease ownership', {
-            error: safeErrorDetails(cleanupError),
-          });
-        }
+      try {
+        await stopClient();
+      } catch (cleanupError) {
+        logger.warn('WhatsApp startup cleanup incomplete; retaining lease ownership', {
+          error: safeErrorDetails(cleanupError),
+        });
       }
       transition('reconnecting', 'startup attempt failed; retry scheduled');
       scheduleRetry();
@@ -307,8 +365,7 @@ function createWhatsAppClient({ config, logger, createEventHandler,
     if (!reconnecting) {
       reconnecting = enqueue(async () => {
         try {
-          await stopClient();
-          await startAttempt();
+          await startAttempt({ force: true });
         } catch (error) {
           // A browser restore can outlive the HTTP request that started it.
           // Do not turn a cleanup race into an unhandled rejection or leave
@@ -350,8 +407,11 @@ function createWhatsAppClient({ config, logger, createEventHandler,
       closePromise = (async () => {
         // index.js gives graceful shutdown 20 seconds; leave room for the
         // process-level deadline while still waiting for a normal cleanup.
-        await destroy({ shutdown: true });
-        await remoteStore.close();
+        try {
+          await destroy({ shutdown: true });
+        } finally {
+          await remoteStore.close();
+        }
       })();
     }
     return closePromise;
@@ -363,6 +423,14 @@ function createWhatsAppClient({ config, logger, createEventHandler,
   return {
     initialize, reconnect, destroy, close, resetSession, getClient, getQr: () => currentQr,
     getStatus: status, getLeaseDiagnostic: () => remoteStore.getLeaseDiagnostic(),
+    getDiagnostics: () => ({
+      initializationAttempts,
+      activeInitializationAttempts,
+      retryScheduled: Boolean(retryTimer),
+      retryInFlight: Boolean(reconnecting || starting),
+      state,
+      cleaning,
+    }),
   };
 }
 

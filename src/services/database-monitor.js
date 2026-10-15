@@ -7,6 +7,7 @@ function createDatabaseMonitor({ prisma, logger, onReady, intervalMs = 30_000 })
   let ready = false;
   let initialized = false;
   let checking = false;
+  let readyWork = null;
 
   async function check() {
     if (stopped || checking) return;
@@ -16,7 +17,11 @@ function createDatabaseMonitor({ prisma, logger, onReady, intervalMs = 30_000 })
       if (stopped) return;
       if (!ready) logger.info('Lead database connected');
       ready = true;
-      if (!initialized) { await onReady(); initialized = true; }
+      if (!initialized) {
+        readyWork ??= Promise.resolve().then(onReady).then(() => { initialized = true; })
+          .finally(() => { readyWork = null; });
+        await readyWork;
+      }
     } catch (error) {
       if (stopped) return;
       if (ready || !initialized) logger.warn('Lead database unavailable or startup dependency failed; will retry', {
@@ -33,7 +38,12 @@ function createDatabaseMonitor({ prisma, logger, onReady, intervalMs = 30_000 })
     timer.unref?.();
     void check();
   }
-  function stop() { stopped = true; clearInterval(timer); }
+  function stop() {
+    stopped = true;
+    clearInterval(timer);
+    timer = null;
+    ready = false;
+  }
   return { start, stop, check, isReady: () => ready };
 }
 

@@ -20,5 +20,25 @@ test('Chromium memory diagnostic sums browser and renderer descendants', () => {
     chromiumProcessCount: 3,
     chromiumRssMb: 1,
     chromiumTreeRssMb: 6,
+    chromiumPssMb: null,
+    chromiumTreePssMb: null,
   });
+});
+
+test('PSS diagnostics account for shared Chromium pages without double-counting RSS', () => {
+  const stats = {
+    '/proc/100/stat': '100 (chrome) S 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0',
+    '/proc/101/stat': '101 (renderer) S 100 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0',
+    '/proc/100/status': 'VmRSS:       10240 kB\n',
+    '/proc/101/status': 'VmRSS:       10240 kB\n',
+    '/proc/100/smaps_rollup': 'Pss:        6144 kB\n',
+    '/proc/101/smaps_rollup': 'Pss:        2048 kB\n',
+  };
+  const fsApi = {
+    readdirSync() { return ['100', '101']; },
+    readFileSync(file) { return stats[file]; },
+  };
+  const result = getChromiumMemory(100, fsApi);
+  assert.equal(result.chromiumTreeRssMb, 20);
+  assert.equal(result.chromiumTreePssMb, 8);
 });

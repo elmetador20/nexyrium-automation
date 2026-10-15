@@ -14,11 +14,14 @@ function snapshot(memoryUsage = process.memoryUsage()) {
   };
 }
 
-function createMemoryMonitor({ logger, intervalMs = 60_000, memoryUsage = () => process.memoryUsage(), timers = globalThis }) {
+function createMemoryMonitor({ logger, intervalMs = 60_000, memoryUsage = () => process.memoryUsage(),
+  memoryDiagnostics = () => ({}), timers = globalThis }) {
   let timer = null;
 
   function log(reason) {
-    logger.info('Process memory usage', { reason, ...snapshot(memoryUsage()) });
+    let diagnostics = {};
+    try { diagnostics = memoryDiagnostics() || {}; } catch { /* diagnostics are best effort */ }
+    logger.info('Process memory usage', { reason, ...snapshot(memoryUsage()), ...diagnostics });
   }
 
   function start() {
