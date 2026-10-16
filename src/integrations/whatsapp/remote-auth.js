@@ -126,7 +126,9 @@ class PersistentRemoteAuth extends RemoteAuth {
   async disconnect() { await this.destroy(); }
 
   logout() {
-    this.logoutPromise ??= (async () => {
+    if (this.logoutPromise) return this.logoutPromise;
+
+    const logoutPromise = (async () => {
       // whatsapp-web.js calls logout() from its post_logout frame handler and
       // immediately calls beforeBrowserInitialized() again on the same auth
       // strategy. Do not leave `stopped` set across that supported re-login
@@ -138,9 +140,20 @@ class PersistentRemoteAuth extends RemoteAuth {
       } finally {
         this.logoutInProgress = false;
         this.stopped = false;
+        // The library reuses this auth strategy after post_logout. Treat the
+        // next login as a new authentication cycle so afterAuthReady() starts
+        // a fresh remote backup instead of returning the old resolved task.
+        this.readyTask = null;
+        this.saved = false;
+        this.newAuthentication = true;
       }
     })();
-    return this.logoutPromise;
+    this.logoutPromise = logoutPromise;
+    void logoutPromise.then(
+      () => { if (this.logoutPromise === logoutPromise) this.logoutPromise = null; },
+      () => { if (this.logoutPromise === logoutPromise) this.logoutPromise = null; },
+    );
+    return logoutPromise;
   }
 }
 

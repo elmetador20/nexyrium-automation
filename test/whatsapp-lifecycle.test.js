@@ -247,6 +247,11 @@ test('RemoteAuth preserves archives on temporary disconnect and deletes only on 
   assert.equal(deleted, 0);
   await Promise.all([auth.logout(), auth.logout()]);
   assert.equal(deleted, 1);
+  assert.equal(auth.readyTask, null);
+  assert.equal(auth.saved, false);
+  assert.equal(auth.newAuthentication, true);
+  await auth.logout();
+  assert.equal(deleted, 2);
 });
 
 test('PersistentRemoteAuth permits the library post-logout reinitialization step', async () => {
