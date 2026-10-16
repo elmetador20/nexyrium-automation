@@ -18,7 +18,7 @@ import { LoadingSkeleton } from "@/components/shared/loading-skeleton";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
-import { api } from "@/lib/api";
+import { api, getPollingInterval } from "@/lib/api";
 
 type LogType = "error" | "warning" | "info";
 
@@ -85,7 +85,8 @@ export default function LogsPage() {
         limit,
         level: activeTab === "all" ? undefined : activeTab,
       }),
-    refetchInterval: 30_000,
+    refetchInterval: (query) => getPollingInterval(30_000, query.state.error, query.state.fetchFailureCount),
+    retry: false,
   });
 
   const logs = data?.logs ?? [];

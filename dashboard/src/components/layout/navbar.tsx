@@ -21,7 +21,7 @@ function resolveTitle(pathname: string): string {
 
 export function Navbar() {
   const pathname = usePathname();
-  const { data: status, refetch, isFetching } = useWhatsAppStatus();
+  const { data: status, refetch, isFetching } = useWhatsAppStatus({ poll: true });
   const connected = status?.connected ?? false;
 
   return (

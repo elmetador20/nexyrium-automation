@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, getPollingInterval } from "@/lib/api";
 import type { PaginatedLeads } from "@/lib/types";
 
 export interface LeadsParams {
@@ -17,7 +17,8 @@ export function useLeads(params: LeadsParams = {}) {
     queryKey: ["leads", { page, limit, search, status, sort, order }],
     queryFn: () => api.leads.list({ page, limit, search, status, sort, order }),
     placeholderData: (prev) => prev,
-    refetchInterval: 30_000,
+    refetchInterval: (query) => getPollingInterval(30_000, query.state.error, query.state.fetchFailureCount),
+    retry: false,
   });
 }
 
@@ -26,7 +27,8 @@ export function useLead(id: string | null) {
     queryKey: ["leads", id],
     queryFn: () => api.leads.get(id!),
     enabled: !!id,
-    refetchInterval: 30_000,
+    refetchInterval: (query) => getPollingInterval(30_000, query.state.error, query.state.fetchFailureCount),
+    retry: false,
   });
 }
 
@@ -34,8 +36,8 @@ export function useSalespeople() {
   return useQuery({
     queryKey: ["salespeople"],
     queryFn: () => api.leads.salespeople(),
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 5 * 60_000,
+    refetchInterval: false,
   });
 }
 

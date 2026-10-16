@@ -2,26 +2,110 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:10000";
 const tokenKey = "nexyrium-admin-token";
 let tokenPrompt: Promise<string | null> | null = null;
 
+const MAX_RETRY_AFTER_MS = 120_000;
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly retryAfterMs: number | null;
+  readonly cause?: unknown;
+
+  constructor(message: string, status: number, retryAfterMs: number | null = null, cause?: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.retryAfterMs = retryAfterMs;
+    this.cause = cause;
+  }
+}
+
+function parseRetryAfter(value: string | null): number | null {
+  if (!value) return null;
+
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) {
+    return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, seconds * 1_000));
+  }
+
+  const retryAt = Date.parse(value);
+  if (!Number.isNaN(retryAt)) {
+    return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, retryAt - Date.now()));
+  }
+
+  return null;
+}
+
+function getApiErrorMessage(body: unknown, fallback: string): string {
+  if (body && typeof body === "object" && "error" in body && typeof body.error === "string") {
+    return body.error;
+  }
+  if (typeof body === "string" && body.trim()) return body.trim();
+  return fallback;
+}
+
+export function getApiErrorStatus(error: unknown): number | null {
+  return error instanceof ApiError ? error.status : null;
+}
+
+export function shouldRetryQuery(failureCount: number, error: unknown): boolean {
+  const status = getApiErrorStatus(error);
+  if (status !== null && [401, 403, 429, 502, 503].includes(status)) return false;
+  return failureCount < 1;
+}
+
+export function getPollingInterval(
+  baseIntervalMs: number,
+  error: unknown,
+  failureCount = 0,
+): number | false {
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") return false;
+
+  const status = getApiErrorStatus(error);
+  if (status === 401 || status === 403) return false;
+
+  if (!error) return baseIntervalMs;
+
+  if (status === 429 && error instanceof ApiError && error.retryAfterMs !== null) {
+    return Math.max(baseIntervalMs, error.retryAfterMs);
+  }
+
+  const exponent = Math.min(4, Math.max(0, failureCount - 1));
+  return Math.min(MAX_RETRY_AFTER_MS, baseIntervalMs * (2 ** exponent));
+}
+
 function requestAdminToken(): Promise<string | null> {
-  tokenPrompt ??= Promise.resolve().then(() => {
+  if (tokenPrompt) return tokenPrompt;
+
+  const prompt = Promise.resolve().then(() => {
     const token = window.prompt("Enter the Render backend ADMIN_API_TOKEN to access the bot dashboard.")?.trim() || null;
     if (token) window.sessionStorage.setItem(tokenKey, token);
     return token;
   });
-  return tokenPrompt;
+  tokenPrompt = prompt;
+  void prompt.then(
+    () => { if (tokenPrompt === prompt) tokenPrompt = null; },
+    () => { if (tokenPrompt === prompt) tokenPrompt = null; },
+  );
+  return prompt;
 }
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const storedToken = typeof window !== "undefined" ? window.sessionStorage.getItem(tokenKey) : null;
-  const request = (token: string | null) => fetch(`${API_BASE}${path}`, {
-    ...options,
-    cache: "no-store",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options?.headers,
-    },
-  });
+  const request = async (token: string | null) => {
+    const headers = new Headers(options?.headers);
+    headers.set("Content-Type", "application/json");
+    headers.delete("Authorization");
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+
+    try {
+      return await fetch(`${API_BASE}${path}`, {
+        ...options,
+        cache: "no-store",
+        headers,
+      });
+    } catch (error) {
+      throw new ApiError("Unable to reach the backend", 0, null, error);
+    }
+  };
 
   let res = await request(storedToken);
   if (res.status === 401 && typeof window !== "undefined") {
@@ -38,8 +122,15 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: "Request failed" }));
-    throw new Error(error.error || `HTTP ${res.status}`);
+    const body = await res.text().then((text) => {
+      if (!text.trim()) return null;
+      try { return JSON.parse(text) as unknown; } catch { return text; }
+    });
+    throw new ApiError(
+      getApiErrorMessage(body, `HTTP ${res.status}`),
+      res.status,
+      parseRetryAfter(res.headers.get("retry-after")),
+    );
   }
 
   return res.json();

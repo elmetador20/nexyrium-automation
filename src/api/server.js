@@ -22,17 +22,23 @@ const { requireAdmin } = require('./admin-auth');
 function createApiServer(port = Number(process.env.PORT) || 10000) {
   const app = express();
 
-    const allowedOrigins = [
-    'https://nexyrium-automation.vercel.app',
-  ];
+  const allowedOrigins = new Set(
+    (process.env.CORS_ALLOWED_ORIGINS || 'https://nexyrium-automation.vercel.app')
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+  );
 
   app.use(cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || allowedOrigins.has(origin)) {
         return callback(null, true);
       }
 
-      return callback(new Error('Origin not allowed by CORS'));
+      // Do not reflect arbitrary origins. Let the request complete without
+      // CORS headers so browsers enforce the policy without turning it into
+      // an internal server error for health monitors and server-side callers.
+      return callback(null, false);
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -61,7 +67,11 @@ function createApiServer(port = Number(process.env.PORT) || 10000) {
 
   app.use((err, _req, res, _next) => {
     logger.error('API request failed', { code: err.code || 'INTERNAL_ERROR' });
-    res.status(500).json({ error: 'Internal server error' });
+    const status = err.status === 429 || err.status === 503 ? err.status : 500;
+    if (status === 429 && err.retryAfterMs) {
+      res.set('Retry-After', String(Math.ceil(err.retryAfterMs / 1000)));
+    }
+    res.status(status).json({ error: status === 503 ? 'Service unavailable' : 'Internal server error' });
   });
 
   function start() {

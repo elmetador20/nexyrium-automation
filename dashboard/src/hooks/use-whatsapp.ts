@@ -1,21 +1,34 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, getPollingInterval } from "@/lib/api";
 
 const WA_KEY = ["whatsapp"] as const;
 
-export function useWhatsAppStatus() {
+export function useWhatsAppStatus({ poll = true }: { poll?: boolean } = {}) {
   return useQuery({
     queryKey: [...WA_KEY, "status"],
     queryFn: api.whatsapp.status,
-    refetchInterval: 10_000,
+    refetchInterval: poll
+      ? (query) => getPollingInterval(10_000, query.state.error, query.state.fetchFailureCount)
+      : false,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchIntervalInBackground: false,
   });
 }
 
-export function useWhatsAppQR() {
+export function useWhatsAppQR({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: [...WA_KEY, "qr"],
     queryFn: api.whatsapp.qr,
-    refetchInterval: 5_000,
+    enabled,
+    refetchInterval: enabled
+      ? (query) => getPollingInterval(5_000, query.state.error, query.state.fetchFailureCount)
+      : false,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchIntervalInBackground: false,
   });
 }
 

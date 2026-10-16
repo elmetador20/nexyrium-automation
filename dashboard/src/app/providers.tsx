@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
+import { shouldRetryQuery } from "@/lib/api";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -10,9 +11,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
         defaultOptions: {
           queries: {
             staleTime: 30_000,
-            refetchInterval: 30_000,
-            retry: 1,
-            refetchOnWindowFocus: true,
+            retry: shouldRetryQuery,
+            refetchOnWindowFocus: (query) => !query.state.error,
+            refetchOnReconnect: (query) => !query.state.error,
+            refetchIntervalInBackground: false,
           },
         },
       })

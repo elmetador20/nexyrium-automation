@@ -51,7 +51,7 @@ function AnimatedNumber({ value, label, icon: Icon, delay = 0 }: {
 }
 
 function WhatsAppStatusCard() {
-  const { data: waStatus, isLoading } = useWhatsAppStatus();
+  const { data: waStatus, isLoading } = useWhatsAppStatus({ poll: false });
   const connected = waStatus?.connected ?? false;
 
   return (

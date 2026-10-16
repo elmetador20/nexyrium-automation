@@ -58,8 +58,7 @@ function ConnectionInfoRow({
 }
 
 function WhatsAppConnectionCard() {
-  const { data: status, isLoading, error: statusError } = useWhatsAppStatus();
-  useWhatsAppQR();
+  const { data: status, isLoading, error: statusError } = useWhatsAppStatus({ poll: false });
   const reconnect = useReconnectWhatsApp();
   const disconnect = useDisconnectWhatsApp();
   const { toast } = useToast();
@@ -207,8 +206,10 @@ function WhatsAppConnectionCard() {
 }
 
 function QRCodeCard() {
-  const { data: status } = useWhatsAppStatus();
-  const { data: qrData, isLoading: qrLoading, error: qrError } = useWhatsAppQR();
+  const { data: status } = useWhatsAppStatus({ poll: false });
+  const { data: qrData, isLoading: qrLoading, error: qrError } = useWhatsAppQR({
+    enabled: status?.connected !== true,
+  });
 
   const connected = status?.connected ?? false;
   const qrAvailable = qrData?.available ?? false;

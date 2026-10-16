@@ -6,12 +6,16 @@ test('actual API keeps health public and protects status, dashboard, and admin a
   const containerPath = require.resolve('../src/container');
   const previousContainer = require.cache[containerPath];
   const oldToken = process.env.ADMIN_API_TOKEN;
+  const oldCorsOrigins = process.env.CORS_ALLOWED_ORIGINS;
   process.env.ADMIN_API_TOKEN = 'test-admin-token-'.repeat(3);
+  process.env.CORS_ALLOWED_ORIGINS = 'https://nexyrium-automation.vercel.app';
   t.after(() => {
     if (previousContainer) require.cache[containerPath] = previousContainer;
     else delete require.cache[containerPath];
     if (oldToken === undefined) delete process.env.ADMIN_API_TOKEN;
     else process.env.ADMIN_API_TOKEN = oldToken;
+    if (oldCorsOrigins === undefined) delete process.env.CORS_ALLOWED_ORIGINS;
+    else process.env.CORS_ALLOWED_ORIGINS = oldCorsOrigins;
   });
   const client = new EventEmitter();
   const fake = {
@@ -35,6 +39,16 @@ test('actual API keeps health public and protects status, dashboard, and admin a
   const base = `http://127.0.0.1:${server.address().port}`;
   assert.equal((await fetch(`${base}/health`)).status, 200);
   assert.equal((await fetch(`${base}/api/health`)).status, 200);
+  const allowedOrigin = await fetch(`${base}/health`, {
+    headers: { Origin: 'https://nexyrium-automation.vercel.app' },
+  });
+  assert.equal(allowedOrigin.status, 200);
+  assert.equal(allowedOrigin.headers.get('access-control-allow-origin'), 'https://nexyrium-automation.vercel.app');
+  const blockedOrigin = await fetch(`${base}/health`, {
+    headers: { Origin: 'https://dashboard.example.invalid' },
+  });
+  assert.equal(blockedOrigin.status, 200);
+  assert.equal(blockedOrigin.headers.get('access-control-allow-origin'), null);
   for (const [method, route] of [
     ['GET', '/api/whatsapp/status'], ['GET', '/api/whatsapp/lease-diagnostic'], ['GET', '/api/whatsapp/qr'], ['GET', '/api/whatsapp/qr-image'],
     ['GET', '/api/settings'], ['GET', '/api/dashboard/stats'], ['GET', '/api/leads'],
